@@ -8,26 +8,35 @@ const __dirname = path.dirname(__filename);
 const INFRA_DIR = path.resolve(__dirname, "..", "_test-infra");
 const SAMPLES_DIR = path.resolve(INFRA_DIR, "fabric-samples");
 const TEST_NETWORK_DIR = path.resolve(SAMPLES_DIR, "test-network");
-const BIN_DIR = path.resolve(SAMPLES_DIR, "bin");
-const TEST_ENV = { ...process.env, PATH: `${BIN_DIR}:${process.env.PATH}` };
 
-function runCommand(command: string, cwd: string, env = process.env): void {
-  console.log(`\n▶️  Running: "${command}" (in ${cwd})`);
-  execSync(command, { cwd, stdio: "inherit", env });
+console.log("💣 Starting Total Teardown and Cleanup...");
+
+// 1. Tear down the network
+if (fs.existsSync(TEST_NETWORK_DIR)) {
+  console.log("🧹 Tearing down the test network...");
+  const testEnv = {
+    ...process.env,
+    PATH: `${path.resolve(SAMPLES_DIR, "bin")}:${process.env.PATH}`,
+  };
+  execSync("./network.sh down", {
+    cwd: TEST_NETWORK_DIR,
+    stdio: "inherit",
+    env: testEnv,
+  });
+} else {
+  console.log("✅ Network seems to be already down.");
 }
 
-async function teardown() {
-  if (fs.existsSync(TEST_NETWORK_DIR)) {
-    console.log("🧹 Tearing down the test network...");
-    runCommand("./network.sh down", TEST_NETWORK_DIR, TEST_ENV);
-    console.log("✅ Teardown complete.");
-  } else {
-    console.log("✅ Network seems to be already down. Nothing to do.");
-  }
+// 2. Nuke the entire test infrastructure directory
+if (fs.existsSync(INFRA_DIR)) {
+  console.log(
+    `🔥 Deleting the entire test infrastructure directory: ${INFRA_DIR}`,
+  );
+  console.warn("WARNING: This is a destructive operation.");
+  fs.rmSync(INFRA_DIR, { recursive: true, force: true });
+  console.log("✅ Infrastructure directory deleted.");
+} else {
+  console.log("✅ Infrastructure directory does not exist. Nothing to delete.");
 }
 
-console.log("Executing dedicated teardown script...");
-teardown().catch((error) => {
-  console.error("Teardown script failed:", error.message);
-  process.exit(1);
-});
+console.log("🎉 Teardown complete. Project is in a pristine state.");

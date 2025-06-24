@@ -23,7 +23,7 @@
     "test": "vitest",
     "test:watch": "vitest --watch",
     "coverage": "vitest run --coverage",
-    "test:e2e": "npx ts-node --esm scripts/e2e-runner.ts",
+    "test:e2e": "ts-node --esm scripts/e2e-runner.ts",
     "test:e2e:teardown": "ts-node --esm scripts/e2e-teardown.ts"
   },
   "dependencies": {
