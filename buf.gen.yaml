@@ -1,12 +1,17 @@
-# Versión de la configuración
-version: v1
+# buf.gen.yaml
+version: v2
+inputs:
+  - directory: fabric-protos
 plugins:
-  # Plugin para generar los mensajes y esquemas de Protobuf
-  - plugin: es
+  # The 'remote' key tells buf to fetch the plugin directly from the BSR.
+  # This is the canonical, modern way.
+  - remote: buf.build/bufbuild/es:v2.5.2
     opt:
-      # Genera archivos TypeScript (en lugar de JS)
       - target=ts
-      # Mantiene los archivos vacíos, útil para que no haya errores de importación
       - keep_empty_files=true
-    # Directorio de salida para los mensajes
+    out: src/generated_protos
+
+  - remote: buf.build/bufbuild/connect-es:v0.13.0
+    opt:
+      - target=ts
     out: src/generated_protos

@@ -52,11 +52,12 @@ export interface EventService {
 }
 
 export interface BlockEventParams {
+  mspId: string;
   channelName: string;
   targetPeer: string;
   targetHostname: string;
-  startBlock: number;
-  stopBlock: number;
+  startBlock?: number;
+  stopBlock?: number;
 }
 
 export interface ChaincodeEventParams {

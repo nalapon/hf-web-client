@@ -40,7 +40,7 @@ function generateNonce(): Uint8Array {
   return getRandomValues(new Uint8Array(24));
 }
 
-function createSerializedIdentityBytes(
+export function createSerializedIdentityBytes(
   mspId: string,
   certPem: string,
 ): Uint8Array {

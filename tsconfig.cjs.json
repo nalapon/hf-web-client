@@ -1,9 +1,0 @@
-{
-  "extends": "./tsconfig.json",
-  "compilerOptions": {
-    "module": "CommonJS",
-    "outDir": "./dist/cjs",
-    "declaration": false, // Ya se generan en la build principal de ESM
-    "sourceMap": false
-  }
-}

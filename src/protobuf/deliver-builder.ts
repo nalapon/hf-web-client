@@ -96,7 +96,7 @@ export async function createSignedDeliverRequest(
   });
   const payloadBytes = toBinary(PayloadSchema, payload);
 
-  const signature = await signEnvelope(payloadBytes, params.identity.key);
+  const signature = await signEnvelope(payloadBytes, params.identity);
 
   return create(EnvelopeSchema, { payload: payloadBytes, signature });
 }

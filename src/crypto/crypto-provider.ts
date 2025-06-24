@@ -1,32 +1,37 @@
-let cryptoModule: Crypto;
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+
+let nodeCrypto: Crypto | undefined;
+
 if (typeof window === "undefined") {
-  cryptoModule = (await import("crypto")).webcrypto as Crypto;
+  const { webcrypto } = require("crypto") as { webcrypto: Crypto };
+  nodeCrypto = webcrypto;
 }
+
 /**
-Provides a universal, environment-agnostic way to get the SubtleCrypto interface.
-This is the cornerstone of our isomorphic strategy. It "just works" everywhere.
-*/
+ * Proporciona SubtleCrypto en Browser o Node (síncrono).
+ */
 export function getSubtleCrypto(): SubtleCrypto {
   if (typeof window !== "undefined" && window.crypto) {
     return window.crypto.subtle;
   }
-  if (cryptoModule) {
-    return cryptoModule.subtle;
+  if (nodeCrypto) {
+    return nodeCrypto.subtle;
   }
   throw new Error(
     "Unsupported environment: A Web Crypto API implementation is required.",
   );
 }
+
 /**
-Provides a universal way to get random values.
-@param array The array to fill with random bytes.
-*/
+ * Proporciona getRandomValues en Browser o Node (síncrono).
+ */
 export function getRandomValues<T extends Uint8Array>(array: T): T {
   if (typeof window !== "undefined" && window.crypto) {
     return window.crypto.getRandomValues(array);
   }
-  if (cryptoModule) {
-    return cryptoModule.getRandomValues(array);
+  if (nodeCrypto) {
+    return nodeCrypto.getRandomValues(array);
   }
   throw new Error(
     "Unsupported environment: A Web Crypto API implementation is required.",

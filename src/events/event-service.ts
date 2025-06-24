@@ -1,19 +1,25 @@
 import { Client, createClient } from "@connectrpc/connect";
 import {
   ChaincodeEventsRequestSchema,
+  ChaincodeEventsResponse,
   Gateway,
+  SignedChaincodeEventsRequest,
   SignedChaincodeEventsRequestSchema,
 } from "../generated_protos/gateway/gateway_pb";
+import { DeliverResponseSchema } from "../generated_protos/peer/events_pb";
 import { createGrpcWebTransport } from "@connectrpc/connect-web";
 import {
   AppIdentity,
   BlockEventParams,
+  ChaincodeEventParams,
   EventServiceConfig,
   FilteredBlock,
 } from "../models";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { EnvelopeSchema } from "../generated_protos/common/common_pb";
 import { signProposal } from "../crypto/signing";
+import { createSignedDeliverRequest } from "../protobuf/deliver-builder";
+import { createSerializedIdentityBytes } from "../protobuf";
 
 export class EventService {
   private readonly gatewayClient: Client<typeof Gateway>;
@@ -116,7 +122,7 @@ export class EventService {
       while (!signal.aborted) {
         const message = await this.waitForSocketMessage(socket, signal);
         const deliverResponse = fromBinary(
-          DeliverResponse,
+          DeliverResponseSchema,
           new Uint8Array(message.data),
         );
 
@@ -176,7 +182,7 @@ export class EventService {
 
     const requestBytes = toBinary(ChaincodeEventsRequestSchema, eventsRequest);
     // Para una petición de eventos, la firma es sobre los bytes de la petición misma.
-    const signature = await signProposal(requestBytes, identity.key);
+    const signature = await signProposal(requestBytes, identity);
 
     return create(SignedChaincodeEventsRequestSchema, {
       request: requestBytes,
@@ -200,7 +206,7 @@ export class EventService {
         signal.removeEventListener("abort", abortHandler);
         resolve();
       };
-      socket.onerror = (event) => {
+      socket.onerror = () => {
         signal.removeEventListener("abort", abortHandler);
         reject(new Error("Fallo al establecer la conexión WebSocket."));
       };
