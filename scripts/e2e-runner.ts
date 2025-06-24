@@ -6,7 +6,6 @@ import { fileURLToPath } from "url";
 // --- Configuration ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
 const FABRIC_VERSION = "2.5.5";
 const CA_VERSION = "1.5.7";
 const INFRA_DIR = path.resolve(__dirname, "..", "_test-infra");
@@ -16,121 +15,89 @@ const BIN_DIR = path.resolve(SAMPLES_DIR, "bin");
 const TEST_ENV = { ...process.env, PATH: `${BIN_DIR}:${process.env.PATH}` };
 
 // --- Helper Functions ---
-function runCommand(command: string, cwd: string, env = process.env): void {
+function runCommand(command: string, cwd: string): void {
   console.log(`\n▶️  Running: "${command}" (in ${cwd})`);
-  execSync(command, { cwd, stdio: "inherit", env });
+  execSync(command, { cwd, stdio: "inherit", env: TEST_ENV });
 }
 
 function checkNetworkUp(): boolean {
   console.log("🔎 Checking if Fabric network is already running...");
-  const dockerPs = execSync('docker ps -f "name=peer0.org1.example.com" -q')
-    .toString()
-    .trim();
-  const isUp = dockerPs !== "";
-  if (isUp) {
-    console.log("✅ Network is already up and running.");
-  } else {
-    console.log("🚧 Network is down.");
+  try {
+    const dockerPs = execSync('docker ps -f "name=peer0.org1.example.com" -q')
+      .toString()
+      .trim();
+    if (dockerPs !== "") {
+      console.log("✅ Network is already up.");
+      return true;
+    }
+  } catch (e) {
+    console.warn("Could not check docker status. Assuming network is down.");
   }
-  return isUp;
+  console.log("🚧 Network is down.");
+  return false;
 }
 
-// --- Main Autonomous Orchestrator ---
-
+// --- Main Orchestrator ---
 async function main() {
-  console.log("🚀 Starting Autonomous E2E Test Runner...");
-  let networkWasBroughtUpByThisScript = false;
+  console.log("🚀 Starting Utopian E2E Test Runner...");
 
   try {
-    // Phase 1: Intelligent Setup
-    if (!checkNetworkUp()) {
-      networkWasBroughtUpByThisScript = true;
-      console.log("--- Executing Full Setup ---");
-
-      console.log("🔎 Checking prerequisites (Docker, Git, Curl)...");
-      // Using execSync here is fine as it's a synchronous check.
-      if (
-        !execSync("command -v docker && command -v git && command -v curl", {
-          encoding: "utf8",
-        }).trim()
-      ) {
-        throw new Error(
-          "FATAL: Docker, Git, and Curl must be installed and in your PATH.",
-        );
-      }
-      console.log("✅ Prerequisites met.");
-
+    if (!fs.existsSync(SAMPLES_DIR)) {
+      console.log("--- Phase 1: Setting up fabric-samples ---");
       fs.mkdirSync(INFRA_DIR, { recursive: true });
+      const installScriptUrl =
+        "https://raw.githubusercontent.com/hyperledger/fabric/main/scripts/install-fabric.sh";
+      runCommand(
+        `curl -sSLO ${installScriptUrl} && chmod +x install-fabric.sh`,
+        INFRA_DIR,
+      );
+      runCommand(
+        `./install-fabric.sh -f ${FABRIC_VERSION} -c ${CA_VERSION} docker binary samples`,
+        INFRA_DIR,
+      );
+    } else {
+      console.log(
+        "✅ Step 1: fabric-samples directory already exists. Skipping.",
+      );
+    }
 
-      if (!fs.existsSync(SAMPLES_DIR)) {
-        console.log(`📂 Setting up Fabric v${FABRIC_VERSION}...`);
-        const installScriptUrl =
-          "https://raw.githubusercontent.com/hyperledger/fabric/main/scripts/install-fabric.sh";
-        runCommand(
-          `curl -sSLO ${installScriptUrl} && chmod +x install-fabric.sh`,
-          INFRA_DIR,
-        );
-        runCommand(
-          `./install-fabric.sh -f ${FABRIC_VERSION} -c ${CA_VERSION} docker binary samples`,
-          INFRA_DIR,
-        );
-      }
-
-      console.log("🌐 Bringing up Hyperledger Fabric test-network...");
+    if (!checkNetworkUp()) {
+      console.log(
+        "--- Phase 2: Starting Fabric network and deploying chaincode ---",
+      );
       runCommand(
         "./network.sh up createChannel -ca -s couchdb",
         TEST_NETWORK_DIR,
-        TEST_ENV,
       );
-
-      console.log('📦 Deploying "asset-transfer-basic" chaincode...');
       runCommand(
         "./network.sh deployCC -ccn basic -ccp ../asset-transfer-basic/chaincode-go -ccl go",
         TEST_NETWORK_DIR,
-        TEST_ENV,
       );
 
-      console.log("✅ Setup phase complete.");
+      console.log("--- Phase 3: Initializing the ledger with data ---");
+      const invokeCmd = `./peer chaincode invoke -o localhost:7050 --ordererTLSHostnameOverride orderer.example.com --tls --cafile \${PWD}/organizations/ordererOrganizations/example.com/orderers/orderer.example.com/msp/tlscacerts/tlsca.example.com-cert.pem -C mychannel -n basic --peerAddresses localhost:7051 --tlsRootCertFiles \${PWD}/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt --peerAddresses localhost:9051 --tlsRootCertFiles \${PWD}/organizations/peerOrganizations/org2.example.com/peers/peer0.org2.example.com/tls/ca.crt -c '{"function":"InitLedger","Args":[]}'`;
+
+      const peerOrg1Env =
+        'export CORE_PEER_LOCALMSPID="Org1MSP" && export CORE_PEER_TLS_ROOTCERT_FILE=${PWD}/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt && export CORE_PEER_MSPCONFIGPATH=${PWD}/organizations/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp && export CORE_PEER_ADDRESS=localhost:7051';
+
+      runCommand(`${peerOrg1Env} && ${invokeCmd}`, TEST_NETWORK_DIR);
+      console.log("✅ Ledger initialized.");
+    } else {
+      console.log(
+        "✅ Steps 2 & 3: Network is already running. Skipping setup and initialization.",
+      );
     }
 
-    // Phase 2: Test Execution (Always runs)
-    console.log("--- Executing Test Suite ---");
+    console.log("--- Phase 4: Running E2E tests ---");
     runCommand(
       "npx vitest run --config vitest.e2e.config.ts",
       path.resolve(__dirname, ".."),
     );
-    console.log("✅ E2E tests finished.");
+    console.log("🎉 E2E tests completed!");
   } catch (error: any) {
     console.error(`\n\n❌ E2E process failed!`);
     console.error(error.message);
-    // We want the process to exit with a failure code for CI environments.
-    process.exitCode = 1;
-  } finally {
-    // Phase 3: Guaranteed Cleanup
-    // We ONLY tear down the network if THIS VERY SCRIPT brought it up.
-    // This respects a developer's manually-started network.
-    if (networkWasBroughtUpByThisScript) {
-      console.log("\n\n--- Executing Guaranteed Teardown ---");
-      if (fs.existsSync(TEST_NETWORK_DIR)) {
-        console.log(
-          "🧹 Tearing down the test network that was started by this script...",
-        );
-        runCommand("./network.sh down", TEST_NETWORK_DIR, TEST_ENV);
-        console.log("✅ Cleanup complete.");
-      }
-    } else {
-      console.log("\n\n--- Skipping Teardown ---");
-      console.log(
-        "Network was not started by this script, leaving it running as requested.",
-      );
-    }
-
-    // Ensure the process exits with the correct code if an error occurred.
-    if (process.exitCode === 1) {
-      console.log("Exiting with failure code.");
-    } else {
-      console.log("E2E run completed successfully.");
-    }
+    process.exit(1);
   }
 }
 
