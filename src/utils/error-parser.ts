@@ -1,37 +1,37 @@
 import { ConnectError } from "@connectrpc/connect";
 
 /**
- * Inspecciona un objeto de error y devuelve el mensaje de error más específico y útil.
- * Está diseñado para "desempaquetar" los detalles de un ConnectError de gRPC.
+ * Digs into an error object to find the most useful, specific error message.
+ * It's especially good at unpacking the gRPC ConnectError black box.
  *
- * @param error El objeto de error, que puede ser de cualquier tipo.
- * @returns Un string con el mensaje de error más útil que se pudo encontrar.
+ * @param error The error object, which could be anything.
+ * @returns A user-friendly string with the best error message we could find.
  */
 export function getGroundedError(error: any): string {
   if (error instanceof ConnectError) {
-    if (error.details.length === 0) {
-      return error.message;
-    }
-
-    const specificDetails = error.details
-      .map((detail: any) => {
-        if (
-          detail &&
-          typeof detail.value === "object" &&
-          detail.value instanceof Uint8Array
-        ) {
-          try {
-            return new TextDecoder().decode(detail.value);
-          } catch (e) {
-            return "(no se pudo decodificar el detalle en bytes)";
+    if (error.details && error.details.length > 0) {
+      const decodedDetails = error.details
+        .map((detail) => {
+          if (
+            detail &&
+            "value" in detail &&
+            detail.value instanceof Uint8Array
+          ) {
+            try {
+              return new TextDecoder().decode(detail.value);
+            } catch (e) {
+              return null;
+            }
           }
-        }
-        return null;
-      })
-      .filter((msg): msg is string => msg !== null)
-      .join("; \n");
+          return null;
+        })
+        .filter((msg): msg is string => msg !== null);
 
-    return specificDetails || error.message;
+      if (decodedDetails.length > 0) {
+        return decodedDetails.join("; \n");
+      }
+    }
+    return error.message;
   }
 
   if (error instanceof Error) {
