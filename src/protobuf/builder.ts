@@ -24,6 +24,7 @@ import {
   HeaderSchema,
 } from "../generated_protos/common/common_pb";
 import { SerializedIdentitySchema } from "../generated_protos/msp/identities_pb";
+import { getRandomValues } from "../crypto/crypto-provider";
 
 // --- Funciones Helper ---
 function stringToUint8Array(str: string): Uint8Array {
@@ -36,7 +37,7 @@ function bytesToHexString(bytes: Uint8Array): string {
   );
 }
 function generateNonce(): Uint8Array {
-  return window.crypto.getRandomValues(new Uint8Array(24));
+  return getRandomValues(new Uint8Array(24));
 }
 
 function createSerializedIdentityBytes(

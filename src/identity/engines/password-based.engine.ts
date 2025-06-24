@@ -16,6 +16,7 @@ import type {
   Result,
 } from "../../models";
 import { tryCatch } from "../../utils/try-catch";
+import { getSubtleCrypto, getRandomValues } from "../../crypto/crypto-provider";
 
 const DB_KEYS = {
   ENCRYPTED_KEY: "pbe-fabric-encrypted-private-key",
@@ -47,10 +48,11 @@ export class PasswordBasedEngine implements ISecurityEngine {
         }
       }
 
-      const salt = self.crypto.getRandomValues(new Uint8Array(16));
-      const iv = self.crypto.getRandomValues(new Uint8Array(12));
+      const salt = getRandomValues(new Uint8Array(16));
+      const iv = getRandomValues(new Uint8Array(12));
+      const crypto = getSubtleCrypto();
       const keyMaterial = await this.deriveKeyMaterial(secretToUse, salt);
-      const encryptionKey = await self.crypto.subtle.importKey(
+      const encryptionKey = await crypto.importKey(
         "raw",
         keyMaterial,
         "AES-GCM",

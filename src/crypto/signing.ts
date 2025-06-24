@@ -1,5 +1,6 @@
 import BN from "bn.js";
 import { AppIdentity } from "../models";
+import { getSubtleCrypto } from "./crypto-provider";
 
 // El "orden" de la curva P-256. Es un número primo constante.
 const N = new BN(
