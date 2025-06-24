@@ -1,0 +1,20 @@
+# Versión de la configuración
+version: v1
+plugins:
+  # Plugin para generar los mensajes y esquemas de Protobuf
+  - plugin: es
+    opt:
+      # Genera archivos TypeScript (en lugar de JS)
+      - target=ts
+      # Mantiene los archivos vacíos, útil para que no haya errores de importación
+      - keep_empty_files=true
+    # Directorio de salida para los mensajes
+    out: src/generated_protos
+
+  # Plugin para generar los clientes de servicio de Connect-RPC
+  - plugin: connect-es
+    opt:
+      # Genera archivos TypeScript
+      - target=ts
+    # Directorio de salida para los servicios (el mismo que los mensajes)
+    out: src/generated_protos
