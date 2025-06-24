@@ -9,7 +9,7 @@ import type { Response as PeerResponse } from "../generated_protos/peer/proposal
  */
 function decodeChaincodePayload(payloadBytes: Uint8Array | undefined): any {
   if (!payloadBytes || payloadBytes.length === 0) {
-    return "(payload vacío)";
+    return null;
   }
   try {
     const decodedString = new TextDecoder("utf-8", { fatal: true }).decode(
