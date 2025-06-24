@@ -1,0 +1,62 @@
+{
+  "name": "@fabric-client/web",
+  "version": "1.0.0-beta.1",
+  "description": "Un cliente TypeScript moderno y robusto para interactuar con Hyperledger Fabric desde entornos web y Node.js.",
+  "author": "naladelponce@gmail.com",
+  "license": "Apache-2.0",
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/types/index.d.ts",
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "proto:generate": "node ./scripts/generate-protos.mjs",
+    "proto:clean": "rimraf src/generated_protos",
+    "build": "npm run clean && npm run proto:generate && tsc -p tsconfig.json && tsc -p tsconfig.cjs.json",
+    "clean": "rimraf dist src/generated_protos",
+    "lint": "eslint \"src/**/*.ts\"",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.5.2",
+    "@connectrpc/connect": "^2.0.2",
+    "@connectrpc/connect-web": "^2.0.2",
+    "@noble/hashes": "^1.8.0",
+    "@scure/bip39": "^1.6.0",
+    "@simplewebauthn/browser": "^13.1.0",
+    "@zxcvbn-ts/core": "^3.0.4",
+    "bn.js": "^5.2.2",
+    "buffer": "^6.0.3",
+    "idb-keyval": "^6.2.2",
+    "jose": "^6.0.11",
+    "jsrsasign": "^11.1.0",
+    "shamir-secret-sharing": "^0.0.4"
+  },
+  "devDependencies": {
+    "@bufbuild/protoc-gen-connect-es": "^0.13.0",
+    "@bufbuild/protoc-gen-es": "^2.5.2",
+    "@types/bn.js": "^5.2.0",
+    "@types/node": "^24.0.3",
+    "@typescript-eslint/eslint-plugin": "^8.34.1",
+    "@typescript-eslint/parser": "^8.34.1",
+    "eslint": "^9.29.0",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.8.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tu-usuario/fabric-client-sdk.git"
+  },
+  "keywords": [
+    "hyperledger",
+    "fabric",
+    "sdk",
+    "client",
+    "blockchain",
+    "typescript",
+    "web-crypto"
+  ]
+}
