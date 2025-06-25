@@ -35,6 +35,8 @@ I am obsessed with security and data security. Here's what I've built under the 
 ## Quick Start: From Zero to Fabric in 60 Seconds
 
 Enough talk. Let's see some code. Here's how you evaluate a transaction against a running network.
+Let's take into consideration that this projects needs a proxy, a grpc-web proxy to work.
+TODO: explain this part.
 
 #### 1. Installation
 
@@ -48,7 +50,7 @@ npm install @nalapon/hf-web-client
 import { FabricClient, IdentityService } from "@nalapon/hf-web-client";
 
 // --- CONFIGURATION ---
-const GATEWAY_URL = "http://localhost:8088"; // Your gateway proxy
+const GATEWAY_PROXY_URL = "http://localhost:8088"; // Your gateway proxy
 const MSP_ID = "Org1MSP";
 const CHANNEL_NAME = "mychannel";
 const CHAINCODE_NAME = "basic";
