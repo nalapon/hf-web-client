@@ -1,5 +1,5 @@
 {
-  "name": "@nalapon/hf-web-client",
+  "name": "@naladelponce/hf-web-client",
   "version": "1.0.0",
   "type": "module",
   "description": "Un cliente TypeScript moderno y robusto para interactuar con Hyperledger Fabric desde entornos web y Node.js.",

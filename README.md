@@ -41,7 +41,9 @@ TODO: explain this part.
 #### 1. Installation
 
 ```bash
-npm install @nalapon/hf-web-client
+npm install @naladelponce/hf-web-client
+# or
+pnpm add @naladelponce/hf-web-client
 ```
 
 #### 2. The Code
