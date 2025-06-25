@@ -5,8 +5,8 @@
   "description": "Un cliente TypeScript moderno y robusto para interactuar con Hyperledger Fabric desde entornos web y Node.js.",
   "author": "naladelponce@gmail.com",
   "license": "Apache-2.0",
-  "main": "./dist/index.mjs",
-  "module": "./dist/index.mjs",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
     "dist/"
@@ -36,9 +36,10 @@
     "prepack": "npm run build",
     "proto:generate": "node ./scripts/generate-protos.mjs",
     "proto:clean": "rimraf src/generated_protos",
-    "test": "vitest",
-    "test:watch": "vitest --watch",
-    "coverage": "vitest run --coverage",
+    "test": "vitest run --exclude=**/e2e/**",
+    "test:unit": "vitest run --exclude=**/e2e/**",
+    "test:watch": "vitest --watch --exclude=**/e2e/**",
+    "coverage": "vitest run --coverage --exclude=**/e2e/**",
     "test:e2e": "ts-node --esm scripts/e2e-runner.ts",
     "test:e2e:teardown": "ts-node --esm scripts/e2e-teardown.ts"
   },
@@ -60,6 +61,7 @@
   "devDependencies": {
     "@bufbuild/buf": "^1.55.1",
     "@bufbuild/protoc-gen-es": "^2.5.2",
+    "@eslint/js": "^9.29.0",
     "@types/bn.js": "^5.2.0",
     "@types/node": "^24.0.3",
     "@typescript-eslint/eslint-plugin": "^8.34.1",
@@ -75,8 +77,9 @@
   },
   "exports": {
     ".": {
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.cjs"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
     }
   }
 }

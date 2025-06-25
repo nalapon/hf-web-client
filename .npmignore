@@ -1,7 +1,70 @@
-*
+# Source files
+src/
 
-!dist/
-!package.json
+# Development files
+*.test.ts
+*.spec.ts
+*.test.js
+*.spec.js
+test/
+tests/
+__tests__/
+*.config.ts
+*.config.js
+vitest.*.ts
+
+# Build tools
+tsconfig.json
+tsup.config.ts
+.eslintrc*
+.prettierrc*
+.gitignore
+
+# Dependencies
+node_modules/
+
+# Documentation and examples
+docs/
+examples/
+*.md
 !README.md
-!LICENSE
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+.circleci/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Scripts
+scripts/
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Temporary
+.tmp/
+.temp/
+
+# Protobuf source
+fabric-protos/
+
+# Keep only dist and essential files
+# Everything else is excluded by default with the patterns above
 
