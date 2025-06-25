@@ -101,6 +101,110 @@ main().catch(console.error);
 
 ---
 
+## Listening for Network Events
+
+So, you've sent a transaction. Now what? You wait? Refresh the page like it's 2005? No. You listen for events. This client gives you two ways to do that, because Fabric is "special" and has two different event streams.
+
+### 1. Listening for Chaincode Events
+
+This is what you'll use most of the time. Your chaincode screams into the void, and you want to hear it. This uses the Gateway's event stream.
+
+**Use Case:** Your chaincode emits an `AssetCreated` event, and you want your UI to update in real-time without the user hitting refresh.
+
+```typescript
+import { FabricClient } from "@nalapon/hf-web-client";
+
+async function listenForChaincode(client: FabricClient, identity: AppIdentity) {
+  console.log("Setting up chaincode event listener...");
+
+  // AbortController is your friend. It's how you say "okay, I'm done listening."
+  const abortController = new AbortController();
+  const signal = abortController.signal;
+
+  // This returns an AsyncGenerator. It's a fancy loop that waits for new events.
+  const eventStream = client.listenToChaincodeEvents(
+    {
+      mspId: MSP_ID,
+      channelName: CHANNEL_NAME,
+      chaincodeName: CHAINCODE_NAME,
+    },
+    identity,
+    signal,
+  );
+
+  try {
+    for await (const event of eventStream) {
+      console.log("🎉 New Chaincode Event Received:", event);
+      // Your logic here: update UI, show a notification, etc.
+      // Example: if (event.eventName === 'AssetCreated') { ... }
+
+      // If you want to stop listening after the first event, you can do this:
+      // abortController.abort();
+    }
+  } catch (error) {
+    if (signal.aborted) {
+      console.log("Event listener was gracefully stopped.");
+    } else {
+      console.error("🔥 Ouch! Event listener crashed:", error);
+    }
+  }
+}
+
+// Example of how to stop it after 10 seconds
+// setTimeout(() => abortController.abort(), 10000);
+```
+
+### 2. Listening for Block Events
+
+This is more low-level. You get a notification for every single block committed to the channel. It's powerful, but also noisy. This requires a direct connection to a peer (via a WebSocket proxy, because browsers).
+
+**Use Case:** You're building a block explorer, a monitoring dashboard, or you just enjoy watching the world burn, one block at a time.
+
+```typescript
+import { FabricClient } from "@nalapon/hf-web-client";
+
+// You'll need the WebSocket proxy URL for this one.
+const WS_PROXY_URL = "ws://localhost:7052"; 
+
+async function listenForBlocks(identity: AppIdentity) {
+  // Note that wsUrl is now part of the client config
+  const client = new FabricClient({ gatewayUrl: GATEWAY_PROXY_URL, wsUrl: WS_PROXY_URL });
+  
+  console.log("Setting up block event listener...");
+
+  const abortController = new AbortController();
+  const signal = abortController.signal;
+
+  const blockStream = client.listenToBlockEvents(
+    {
+      mspId: MSP_ID,
+      channelName: CHANNEL_NAME,
+      // You need to specify which peer to listen to.
+      targetPeer: "peer0.org1.example.com", 
+      targetHostname: "peer0.org1.example.com", // And its hostname for TLS
+    },
+    identity,
+    signal,
+  );
+
+  try {
+    for await (const block of blockStream) {
+      console.log(`📦 New Block Committed: #${block.number}`);
+      // The block is a "FilteredBlock", so it has transactions but not all the details.
+      console.log(`  - Contains ${block.filteredTransactions.length} transactions.`);
+    }
+  } catch (error) {
+    if (signal.aborted) {
+      console.log("Block listener was gracefully stopped.");
+    } else {
+      console.error("🔥 Block listener crashed:", error);
+    }
+  }
+}
+```
+
+---
+
 ## Development & Testing
 
 The entire test infrastructure is kinda automated. To run a full End-to-End test suite that:
@@ -121,8 +225,6 @@ Seriously. That's it. I do not like projects with long setups. For a total clean
 ## What's Next? (The Roadmap)
 
 This is just the beginning. I am working on:
-
-- Full implementation of the `EventService` for real-time block and chaincode events.
 - Plugins for popular frontend frameworks (React, Vue).
 - Even more robust identity recovery options.
 
