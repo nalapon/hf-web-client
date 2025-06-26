@@ -8,6 +8,8 @@ import { createClient, type Client } from "@connectrpc/connect";
 import { createGrpcWebTransport } from "@connectrpc/connect-web";
 import {
   AppIdentity,
+  BlockEventParams,
+  ChaincodeEventParams,
   EvaluatedTransaction,
   FabricClientConfig,
   PreparedTransaction,
@@ -27,13 +29,17 @@ import {
 import { tryCatch } from "../utils/try-catch";
 import { EnvelopeSchema } from "../generated_protos/common/common_pb";
 import { getGroundedError } from "../utils/error-parser";
+import { EventService } from "../events/event-service";
+import { ChaincodeEventsResponse, FilteredBlock } from "../models";
 
 export class FabricClient {
   private readonly gatewayClient: Client<typeof Gateway>;
+  private readonly eventService: EventService;
 
   constructor(config: FabricClientConfig) {
     const transport = createGrpcWebTransport({ baseUrl: config.gatewayUrl });
     this.gatewayClient = createClient(Gateway, transport);
+    this.eventService = new EventService(config);
   }
 
   /**
@@ -175,5 +181,39 @@ export class FabricClient {
         status: "Transacción enviada con éxito al gateway.",
       };
     }, getGroundedError);
+  }
+
+  /**
+   * Establece una conexión para escuchar eventos emitidos por un chaincode específico.
+   * Devuelve un Generador Asíncrono que produce respuestas a medida que llegan.
+   *
+   * @param params Los detalles del canal y chaincode a escuchar.
+   * @param identity La identidad del cliente para firmar la petición de eventos.
+   * @param signal Un AbortSignal para cancelar la suscripción y cerrar el stream.
+   * @yields {ChaincodeEventsResponse} Un objeto de respuesta por cada bloque que contenga eventos.
+   */
+  public listenToChaincodeEvents(
+    params: ChaincodeEventParams,
+    identity: AppIdentity,
+    signal: AbortSignal,
+  ): AsyncGenerator<ChaincodeEventsResponse> {
+    return this.eventService.listenToChaincodeEvents(params, identity, signal);
+  }
+
+  /**
+   * Establece una conexión WebSocket para escuchar eventos de bloque filtrados de un canal.
+   * Devuelve un Generador Asíncrono que produce bloques a medida que son commiteados.
+   *
+   * @param params Los detalles del canal y peer a escuchar.
+   * @param identity La identidad del cliente para firmar la petición de deliver.
+   * @param signal Un AbortSignal para cancelar la suscripción y cerrar el WebSocket.
+   * @yields {FilteredBlock} Un bloque filtrado cada vez que se commitea uno nuevo.
+   */
+  public listenToBlockEvents(
+    params: BlockEventParams,
+    identity: AppIdentity,
+    signal: AbortSignal,
+  ): AsyncGenerator<FilteredBlock> {
+    return this.eventService.listenToBlockEvents(params, identity, signal);
   }
 }

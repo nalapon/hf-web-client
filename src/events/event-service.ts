@@ -12,7 +12,7 @@ import {
   AppIdentity,
   BlockEventParams,
   ChaincodeEventParams,
-  EventServiceConfig,
+  FabricClientConfig,
   FilteredBlock,
 } from "../models";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
@@ -25,7 +25,7 @@ export class EventService {
   private readonly gatewayClient: Client<typeof Gateway>;
   private readonly wsBaseUrl: string;
 
-  constructor(config: EventServiceConfig) {
+  constructor(config: FabricClientConfig) {
     const transport = createGrpcWebTransport({ baseUrl: config.gatewayUrl });
     this.gatewayClient = createClient(Gateway, transport);
     this.wsBaseUrl = config.wsUrl;

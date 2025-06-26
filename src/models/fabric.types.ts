@@ -1,5 +1,6 @@
 export interface FabricClientConfig {
   gatewayUrl: string;
+  wsUrl: string;
 }
 
 interface BaseChaincodeParams {
@@ -40,10 +41,7 @@ import type { ChaincodeEventsResponse } from "../generated_protos/gateway/gatewa
 
 import type { FilteredBlock } from "../generated_protos/peer/events_pb";
 
-export interface EventServiceConfig {
-  gatewayUrl: string;
-  wsUrl: string;
-}
+
 
 export interface EventService {
   mspId: string;
