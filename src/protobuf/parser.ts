@@ -7,7 +7,9 @@ import type { Response as PeerResponse } from "../generated_protos/peer/proposal
 /**
  * Parsea el payload de un chaincode (que suele ser un string o JSON) a un formato útil.
  */
-function decodeChaincodePayload(payloadBytes: Uint8Array | undefined): any {
+export function decodeChaincodePayload(
+  payloadBytes: Uint8Array | undefined,
+): any {
   if (!payloadBytes || payloadBytes.length === 0) {
     return null;
   }

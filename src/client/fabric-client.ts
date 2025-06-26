@@ -1,7 +1,9 @@
 import {
+  CommitStatusRequestSchema,
   EndorseRequestSchema,
   EvaluateRequestSchema,
   Gateway,
+  SignedCommitStatusRequestSchema,
   SubmitRequestSchema,
 } from "../generated_protos/gateway/gateway_pb";
 import { createClient, type Client } from "@connectrpc/connect";
@@ -18,8 +20,11 @@ import {
   SubmitParams,
   SubmittedTransaction,
 } from "../models";
-import { parseEvaluateResponse } from "../protobuf/parser";
-import { create } from "@bufbuild/protobuf";
+import {
+  decodeChaincodePayload,
+  parseEvaluateResponse,
+} from "../protobuf/parser";
+import { create, toBinary } from "@bufbuild/protobuf";
 import { SignedProposalSchema } from "../generated_protos/peer/proposal_pb";
 import { signEnvelope, signProposal } from "../crypto/signing";
 import {
@@ -32,6 +37,9 @@ import { getGroundedError } from "../utils/error-parser";
 import { EventService } from "../events/event-service";
 import { ChaincodeEventsResponse, FilteredBlock } from "../models";
 
+import { createSerializedIdentityBytes } from "../protobuf";
+import { TxValidationCode } from "../generated_protos/peer/transaction_pb";
+
 export class FabricClient {
   private readonly gatewayClient: Client<typeof Gateway>;
   private readonly eventService: EventService;
@@ -40,6 +48,96 @@ export class FabricClient {
     const transport = createGrpcWebTransport({ baseUrl: config.gatewayUrl });
     this.gatewayClient = createClient(Gateway, transport);
     this.eventService = new EventService(config);
+  }
+
+  /**
+   * Submits a transaction and waits for it to be committed to the ledger.
+   * This method abstracts the entire transaction lifecycle (endorse, submit, commit)
+   * into a single, synchronous-like call.
+   *
+   * @param params The details of the transaction proposal.
+   * @param identity The client identity to sign the proposal.
+   * @returns A Result containing the transaction ID and the payload returned by the chaincode, or an error if the transaction fails at any stage.
+   */
+  /**
+   * Submits a transaction and waits for it to be committed to the ledger.
+   * This method abstracts the entire transaction lifecycle (endorse, submit, commit)
+   * into a single, synchronous-like call.
+   *
+   * @param params The details of the transaction proposal.
+   * @param identity The client identity to sign the proposal.
+   * @returns A Result containing the transaction ID and the payload returned by the chaincode, or an error if the transaction fails at any stage.
+   */
+  public async submitAndCommit(
+    params: ProposalParams,
+    identity: AppIdentity,
+  ): Promise<Result<{ txId: string; result: any }>> {
+    return tryCatch(async () => {
+      // --- 1. ENDORSEMENT ---
+      const preparedTx = await this.prepareTransaction(params, identity);
+      if (!preparedTx.success) {
+        throw preparedTx.error;
+      }
+      const { txId, transactionEnvelope } = preparedTx.data;
+      const simulatedResult = decodeChaincodePayload(transactionEnvelope);
+
+      // --- 2. SUBMISSION ---
+      await this.submitSignedTransaction(
+        {
+          txId,
+          channelName: params.channelName,
+          preparedTransaction: transactionEnvelope,
+        },
+        identity,
+      );
+
+      // --- 3. WAIT FOR COMMIT ---
+      await this._waitForCommit(
+        params.channelName,
+        txId,
+        identity,
+        params.mspId,
+      );
+
+      // --- 4. SUCCESS ---
+      return { txId, result: simulatedResult };
+    }, getGroundedError);
+  }
+
+  /**
+   * Waits for a transaction to be committed by the gateway.
+   * @private
+   */
+  private async _waitForCommit(
+    channelId: string,
+    txId: string,
+    identity: AppIdentity,
+    mspId: string,
+  ): Promise<void> {
+    const creator = createSerializedIdentityBytes(mspId, identity.cert);
+    const request = create(CommitStatusRequestSchema, {
+      channelId,
+      transactionId: txId,
+      identity: creator,
+    });
+
+    const requestBytes = toBinary(CommitStatusRequestSchema, request);
+    const signature = await identity.sign(requestBytes);
+
+    const signedRequest = create(SignedCommitStatusRequestSchema, {
+      request: requestBytes,
+      signature,
+    });
+
+    const status = await this.gatewayClient.commitStatus(signedRequest);
+
+    if (status.result !== TxValidationCode.VALID) {
+      throw new Error(
+        `Transaction ${txId} failed to commit with status: ${
+          TxValidationCode[status.result]
+        } (${status.result})`,
+      );
+    }
   }
 
   /**
