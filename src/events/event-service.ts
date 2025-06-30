@@ -21,11 +21,27 @@ import { signProposal } from "../crypto/signing";
 import { createSignedDeliverRequest } from "../protobuf/deliver-builder";
 import { createSerializedIdentityBytes } from "../protobuf";
 
+// --- Isomorphic Imports ---
+const isNode = typeof window === "undefined";
+let WebSocket: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+if (isNode) {
+  // Using require for conditional import in Node.js
+  WebSocket = require("ws");
+} else {
+  WebSocket = self.WebSocket;
+}
+
 export class EventService {
   private readonly gatewayClient: Client<typeof Gateway>;
   private readonly wsBaseUrl: string;
 
   constructor(config: FabricClientConfig) {
+    if (!config.wsUrl) {
+      throw new Error(
+        "EventService requires a `wsUrl` in the client configuration.",
+      );
+    }
     const transport = createGrpcWebTransport({ baseUrl: config.gatewayUrl });
     this.gatewayClient = createClient(Gateway, transport);
     this.wsBaseUrl = config.wsUrl;

@@ -2,7 +2,6 @@ import {
   startAuthentication,
   startRegistration,
 } from "@simplewebauthn/browser";
-import { get, set } from "idb-keyval";
 import { WorkerAction } from "./interfaces";
 import {
   AppIdentity,
@@ -11,6 +10,7 @@ import {
   PasswordUnlockOptions,
   Result,
 } from "../models";
+import { CryptoEngine } from "./crypto-engine";
 
 function uint8ArrayToBase64Url(array: Uint8Array): string {
   return btoa(String.fromCharCode.apply(null, Array.from(array)))
@@ -19,30 +19,43 @@ function uint8ArrayToBase64Url(array: Uint8Array): string {
     .replace(/=+$/, "");
 }
 
+const isNode = typeof window === "undefined";
+
 export class IdentityService {
-  private worker: Worker;
+  private worker: Worker | null = null;
+  private engine: CryptoEngine | null = null;
 
   constructor() {
-    this.worker = new Worker(new URL("./crypto-worker.js", import.meta.url), {
-      type: "module",
-    });
+    if (isNode) {
+      this.engine = new CryptoEngine();
+    } else {
+      this.worker = new Worker(new URL("./crypto-worker.js", import.meta.url), {
+        type: "module",
+      });
+    }
   }
 
   private request<T>(
     action: WorkerAction,
     payload: any,
-    engineType: "password-base" | "hardware-base",
+    engineType: "password-based" | "hardware-based",
   ): Promise<Result<T>> {
-    return new Promise((resolve) => {
-      const handleResponse = (event: MessageEvent) => {
-        this.worker.removeEventListener("message", handleResponse);
-        resolve(event.data as Result<T>);
-      };
-
-      this.worker.addEventListener("message", handleResponse);
-
-      this.worker.postMessage({ action, payload, engineType });
-    });
+    if (this.engine) {
+      // Node.js path: direct engine call
+      return this.engine.performAction(action, payload, engineType);
+    }
+    if (this.worker) {
+      // Browser path: use the worker
+      return new Promise((resolve) => {
+        const handleResponse = (event: MessageEvent) => {
+          this.worker!.removeEventListener("message", handleResponse);
+          resolve(event.data as Result<T>);
+        };
+        this.worker!.addEventListener("message", handleResponse);
+        this.worker!.postMessage({ action, payload, engineType });
+      });
+    }
+    throw new Error("IdentityService is not initialized correctly.");
   }
 
   /**
@@ -51,23 +64,15 @@ export class IdentityService {
    * @returns An AppIdentity object with a live `sign` method.
    */
   private buildActiveIdentity(cert: string): AppIdentity {
-    // The `this` here refers to the IdentityService instance.
     const serviceInstance = this;
-
     return {
       cert: cert,
-      // We create the sign method using an arrow function to capture `serviceInstance`.
-      // This is the core of the magic. When the user calls `identity.sign()`,
-      // it's actually calling back into this service instance.
       sign: async (dataToSign: Uint8Array): Promise<Uint8Array> => {
         const signResult = await serviceInstance.request<Uint8Array>(
           WorkerAction.SignPayload,
           dataToSign,
-          // The engineType here doesn't matter for signing, as the key is already
-          // unlocked. But we'll just pick one to satisfy the contract.
-          "password-base",
+          "password-based",
         );
-
         if (!signResult.success) {
           throw signResult.error;
         }
@@ -77,11 +82,11 @@ export class IdentityService {
   }
 
   public doesHardwareIdentityExist(): Promise<Result<boolean>> {
-    return this.request(WorkerAction.DoesIdentityExist, null, "hardware-base");
+    return this.request(WorkerAction.DoesIdentityExist, null, "hardware-based");
   }
 
   public doesPasswordIdentityExist(): Promise<Result<boolean>> {
-    return this.request(WorkerAction.DoesIdentityExist, null, "password-base");
+    return this.request(WorkerAction.DoesIdentityExist, null, "password-based");
   }
 
   public async createPasswordIdentity(
@@ -90,17 +95,12 @@ export class IdentityService {
     const result = await this.request<any>(
       WorkerAction.CreateIdentity,
       options,
-      "password-base",
+      "password-based",
     );
-
     if (!result.success) {
       return result;
     }
-
-    // On success, the worker returns the cert, phrase, and shares.
-    // We use them to build the complete, active result object.
     const activeIdentity = this.buildActiveIdentity(result.data.cert);
-
     return {
       success: true,
       data: {
@@ -112,24 +112,36 @@ export class IdentityService {
     };
   }
 
+  public async importIdentity(options: {
+    keyPem: string;
+    certPem: string;
+  }): Promise<Result<AppIdentity>> {
+    const result = await this.request<{ cert: string }>(
+      WorkerAction.ImportIdentity,
+      options,
+      "password-based",
+    );
+    if (!result.success) {
+      return result;
+    }
+    const activeIdentity = this.buildActiveIdentity(result.data.cert);
+    return { success: true, data: activeIdentity, error: null };
+  }
+
   public async createHardwareIdentity(options: {
     certPem: string;
     keyPem: string;
   }): Promise<Result<PasswordCreateResult>> {
-    const cryptoResult = await this.request<PasswordCreateResult>(
-      WorkerAction.CreateHardwareIdentityCrypto,
-      options,
-      "hardware-base",
-    );
-
-    if (!cryptoResult.success) {
-      return cryptoResult;
+    if (isNode) {
+      return {
+        success: false,
+        data: null,
+        error: new Error("Hardware identity is not supported in this environment."),
+      };
     }
-
     try {
       const rpName = "Fabric Client App";
       const rpID = window.location.hostname;
-
       const registrationOptions = {
         rp: { name: rpName, id: rpID },
         user: {
@@ -142,7 +154,7 @@ export class IdentityService {
         challenge: uint8ArrayToBase64Url(
           window.crypto.getRandomValues(new Uint8Array(32)),
         ),
-        pubKeyCredParams: [{ alg: -7, type: "public-key" as const }], // ES256
+        pubKeyCredParams: [{ alg: -7, type: "public-key" as const }],
         authenticatorSelection: {
           residentKey: "required" as const,
           userVerification: "required" as const,
@@ -154,9 +166,25 @@ export class IdentityService {
       const attestation = await startRegistration({
         optionsJSON: registrationOptions,
       });
-      await set("hw-fabric-credential-id", attestation.id);
 
-      return cryptoResult;
+      // Now, call the worker to create the identity and store the credential ID.
+      const cryptoResult = await this.request<PasswordCreateResult>(
+        WorkerAction.CreateIdentity,
+        { options, webAuthnCredentialId: attestation.id },
+        "hardware-based",
+      );
+
+      if (!cryptoResult.success) {
+        return cryptoResult;
+      }
+
+      // Build the active identity from the successful result.
+      const activeIdentity = this.buildActiveIdentity(cryptoResult.data.cert);
+      return {
+        success: true,
+        data: { ...activeIdentity, ...cryptoResult.data },
+        error: null,
+      };
     } catch (error: any) {
       return {
         success: false,
@@ -168,10 +196,9 @@ export class IdentityService {
 
   public async unlockIdentity(
     options: PasswordUnlockOptions,
-    mode: "password-base" | "hardware-base",
+    mode: "password-based" | "hardware-based",
   ): Promise<Result<AppIdentity>> {
-    // Para el desbloqueo de hardware, primero verificamos la biometría.
-    if (mode === "hardware-base") {
+    if (mode === "hardware-based") {
       const bioResult = await this.verifyBiometrics();
       if (!bioResult.success) {
         return { success: false, data: null, error: bioResult.error };
@@ -183,30 +210,39 @@ export class IdentityService {
       options,
       mode,
     );
-
     if (!result.success) {
       return result;
     }
-
-    // The worker only needs to give us back the certificate. We build the
-    // active identity object here in the main thread.
     const activeIdentity = this.buildActiveIdentity(result.data.cert);
-
     return { success: true, data: activeIdentity, error: null };
   }
 
   public async verifyBiometrics(): Promise<Result<boolean>> {
+    if (isNode) {
+      return {
+        success: false,
+        data: null,
+        error: new Error("Hardware identity is not supported in this environment."),
+      };
+    }
     try {
       const rpID = window.location.hostname;
-      const credentialId = await get<string>("hw-fabric-credential-id");
-      if (!credentialId)
-        throw new Error("No hardware credential ID found in storage.");
+
+      // Get the credential ID from the secure engine instead of local storage.
+      const credIdResult = await this.request<string>(
+        WorkerAction.GetHardwareCredentialId,
+        null,
+        "hardware-based",
+      );
+      if (!credIdResult.success) throw credIdResult.error;
 
       const authOptions = {
         challenge: uint8ArrayToBase64Url(
           window.crypto.getRandomValues(new Uint8Array(16)),
         ),
-        allowCredentials: [{ id: credentialId, type: "public-key" as const }],
+        allowCredentials: [
+          { id: credIdResult.data, type: "public-key" as const },
+        ],
         userVerification: "required" as const,
         rpId: rpID,
       };
@@ -221,8 +257,9 @@ export class IdentityService {
       };
     }
   }
+
   public deleteIdentity(
-    mode: "password-base" | "hardware-base",
+    mode: "password-based" | "hardware-based",
   ): Promise<Result<void>> {
     return this.request<void>(WorkerAction.DeleteIdentity, null, mode);
   }

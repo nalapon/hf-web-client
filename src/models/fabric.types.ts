@@ -1,6 +1,8 @@
 export interface FabricClientConfig {
   gatewayUrl: string;
-  wsUrl: string;
+  wsUrl?: string;
+  tlsCaCert?: string;
+  createTransport?: (opts: { baseUrl: string }) => unknown;
 }
 
 interface BaseChaincodeParams {
@@ -40,8 +42,6 @@ export interface SubmittedTransaction {
 import type { ChaincodeEventsResponse } from "../generated_protos/gateway/gateway_pb";
 
 import type { FilteredBlock } from "../generated_protos/peer/events_pb";
-
-
 
 export interface EventService {
   mspId: string;

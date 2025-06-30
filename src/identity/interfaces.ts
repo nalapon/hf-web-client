@@ -17,11 +17,12 @@ export interface CreatedIdentityData extends UnlockedIdentityData {
  */
 export const enum WorkerAction {
   CreateIdentity = "CREATE_IDENTITY",
-  CreateHardwareIdentityCrypto = "CREATE_IDENTITY_HW_CRYPTO",
   UnlockIdentity = "UNLOCK_IDENTITY",
+  ImportIdentity = "IMPORT_IDENTITY",
   DoesIdentityExist = "DOES_IDENTITY_EXIST",
   DeleteIdentity = "DELETE_IDENTITY",
   SignPayload = "SIGN_PAYLOAD",
+  GetHardwareCredentialId = "GET_HW_CREDENTIAL_ID",
 }
 
 /**
@@ -42,9 +43,7 @@ import type {
 export interface ISecurityEngine {
   doesIdentityExist(): Promise<Result<boolean>>;
 
-  createIdentity?(
-    options: PasswordCreateOptions,
-  ): Promise<Result<CreatedIdentityData>>;
+  createIdentity?(...args: any[]): Promise<Result<CreatedIdentityData>>;
 
   unlockIdentity(
     options: PasswordUnlockOptions,

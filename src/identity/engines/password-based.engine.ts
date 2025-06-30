@@ -1,10 +1,9 @@
-import { set, get, del, keys } from "idb-keyval";
-import * as jose from "jose";
 import { zxcvbn } from "@zxcvbn-ts/core";
 import { generateMnemonic } from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english";
 import { split } from "shamir-secret-sharing";
 
+import * as jose from "jose";
 import type {
   CreatedIdentityData,
   ISecurityEngine,
@@ -17,6 +16,8 @@ import type {
 } from "../../models";
 import { tryCatch } from "../../utils/try-catch";
 import { getSubtleCrypto, getRandomValues } from "../../crypto/crypto-provider";
+import type { IKeyValueStore } from "../storage/ikeystore";
+import { isomorphicBtoa } from "../../utils/isomorphic-helpers";
 
 const DB_KEYS = {
   ENCRYPTED_KEY: "pbe-fabric-encrypted-private-key",
@@ -26,9 +27,15 @@ const DB_KEYS = {
 };
 
 export class PasswordBasedEngine implements ISecurityEngine {
+  private readonly store: IKeyValueStore;
+
+  constructor(store: IKeyValueStore) {
+    this.store = store;
+  }
+
   public async doesIdentityExist(): Promise<Result<boolean>> {
     return tryCatch(async () => {
-      const allKeys = await keys();
+      const allKeys = await this.store.keys();
       return allKeys.includes(DB_KEYS.ENCRYPTED_KEY);
     });
   }
@@ -61,24 +68,24 @@ export class PasswordBasedEngine implements ISecurityEngine {
       );
 
       const keyPemBytes = new TextEncoder().encode(options.keyPem);
-      const encryptedKeyPem = await self.crypto.subtle.encrypt(
+      const encryptedKeyPem = await crypto.encrypt(
         { name: "AES-GCM", iv },
         encryptionKey,
         keyPemBytes,
       );
 
       await Promise.all([
-        set(DB_KEYS.ENCRYPTED_KEY, encryptedKeyPem),
-        set(DB_KEYS.CERTIFICATE, options.certPem),
-        set(DB_KEYS.SALT, salt),
-        set(DB_KEYS.IV, iv),
+        this.store.set(DB_KEYS.ENCRYPTED_KEY, encryptedKeyPem),
+        this.store.set(DB_KEYS.CERTIFICATE, options.certPem),
+        this.store.set(DB_KEYS.SALT, salt),
+        this.store.set(DB_KEYS.IV, iv),
       ]);
 
       const signingKey = await jose.importPKCS8(options.keyPem, "ES256");
       const secretBytes = new TextEncoder().encode(secretToUse);
       const shares = await split(secretBytes, 5, 3);
       const sharesAsBase64 = shares.map((share) =>
-        btoa(String.fromCharCode.apply(null, Array.from(share))),
+        isomorphicBtoa(String.fromCharCode.apply(null, Array.from(share))),
       );
 
       return {
@@ -95,10 +102,10 @@ export class PasswordBasedEngine implements ISecurityEngine {
   ): Promise<Result<UnlockedIdentityData>> {
     return tryCatch(async () => {
       const [encryptedKey, salt, iv, cert] = await Promise.all([
-        get<ArrayBuffer>(DB_KEYS.ENCRYPTED_KEY),
-        get<Uint8Array>(DB_KEYS.SALT),
-        get<Uint8Array>(DB_KEYS.IV),
-        get<string>(DB_KEYS.CERTIFICATE),
+        this.store.get<ArrayBuffer>(DB_KEYS.ENCRYPTED_KEY),
+        this.store.get<Uint8Array>(DB_KEYS.SALT),
+        this.store.get<Uint8Array>(DB_KEYS.IV),
+        this.store.get<string>(DB_KEYS.CERTIFICATE),
       ]);
 
       if (!encryptedKey || !salt || !iv || !cert) {
@@ -108,14 +115,15 @@ export class PasswordBasedEngine implements ISecurityEngine {
       }
 
       const keyMaterial = await this.deriveKeyMaterial(options.password, salt);
-      const decryptionKey = await self.crypto.subtle.importKey(
+      const crypto = getSubtleCrypto();
+      const decryptionKey = await crypto.importKey(
         "raw",
         keyMaterial,
         "AES-GCM",
         true,
         ["decrypt"],
       );
-      const keyPemBytes = await self.crypto.subtle.decrypt(
+      const keyPemBytes = await crypto.decrypt(
         { name: "AES-GCM", iv },
         decryptionKey,
         encryptedKey,
@@ -129,14 +137,18 @@ export class PasswordBasedEngine implements ISecurityEngine {
 
   public async deleteIdentity(): Promise<Result<void>> {
     return tryCatch(async () => {
-      await Promise.all([
-        del(DB_KEYS.ENCRYPTED_KEY),
-        del(DB_KEYS.CERTIFICATE),
-        del(DB_KEYS.SALT),
-        del(DB_KEYS.IV),
-      ]);
+      if (this.store.clear) {
+        await this.store.clear();
+      } else {
+        await Promise.all([
+          this.store.del(DB_KEYS.ENCRYPTED_KEY),
+          this.store.del(DB_KEYS.CERTIFICATE),
+          this.store.del(DB_KEYS.SALT),
+          this.store.del(DB_KEYS.IV),
+        ]);
+      }
       console.log(
-        "Password-based identity successfully deleted from IndexedDB.",
+        "Password-based identity successfully deleted from storage.",
       );
     });
   }
@@ -145,14 +157,15 @@ export class PasswordBasedEngine implements ISecurityEngine {
     password: string,
     salt: Uint8Array,
   ): Promise<ArrayBuffer> {
-    const baseKey = await self.crypto.subtle.importKey(
+    const crypto = getSubtleCrypto();
+    const baseKey = await crypto.importKey(
       "raw",
       new TextEncoder().encode(password),
       "PBKDF2",
       false,
       ["deriveBits"],
     );
-    return self.crypto.subtle.deriveBits(
+    return crypto.deriveBits(
       {
         name: "PBKDF2",
         salt: salt,

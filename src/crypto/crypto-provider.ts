@@ -1,39 +1,33 @@
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 
-let nodeCrypto: Crypto | undefined;
+let crypto: Crypto;
 
-if (typeof window === "undefined") {
+if (typeof self !== "undefined" && self.crypto) {
+  crypto = self.crypto;
+} else if (typeof window !== "undefined" && window.crypto) {
+  crypto = window.crypto;
+} else {
   const { webcrypto } = require("crypto") as { webcrypto: Crypto };
-  nodeCrypto = webcrypto;
+  crypto = webcrypto;
+}
+
+if (!crypto) {
+  throw new Error(
+    "Unsupported environment: A Web Crypto API implementation is required.",
+  );
 }
 
 /**
- * Proporciona SubtleCrypto en Browser o Node (síncrono).
+ * Proporciona SubtleCrypto en cualquier entorno (Browser, Worker, o Node).
  */
 export function getSubtleCrypto(): SubtleCrypto {
-  if (typeof window !== "undefined" && window.crypto) {
-    return window.crypto.subtle;
-  }
-  if (nodeCrypto) {
-    return nodeCrypto.subtle;
-  }
-  throw new Error(
-    "Unsupported environment: A Web Crypto API implementation is required.",
-  );
+  return crypto.subtle;
 }
 
 /**
- * Proporciona getRandomValues en Browser o Node (síncrono).
+ * Proporciona getRandomValues en cualquier entorno (Browser, Worker, o Node).
  */
 export function getRandomValues<T extends Uint8Array>(array: T): T {
-  if (typeof window !== "undefined" && window.crypto) {
-    return window.crypto.getRandomValues(array);
-  }
-  if (nodeCrypto) {
-    return nodeCrypto.getRandomValues(array);
-  }
-  throw new Error(
-    "Unsupported environment: A Web Crypto API implementation is required.",
-  );
+  return crypto.getRandomValues(array);
 }

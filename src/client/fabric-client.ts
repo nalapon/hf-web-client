@@ -7,7 +7,8 @@ import {
   SubmitRequestSchema,
 } from "../generated_protos/gateway/gateway_pb";
 import { createClient, type Client } from "@connectrpc/connect";
-import { createGrpcWebTransport } from "@connectrpc/connect-web";
+import { createGrpcWebTransport as createBrowserTransport } from "@connectrpc/connect-web";
+import { createGrpcWebTransport as createNodeTransport } from "@connectrpc/connect-node";
 import {
   AppIdentity,
   BlockEventParams,
@@ -45,7 +46,20 @@ export class FabricClient {
   private readonly eventService: EventService;
 
   constructor(config: FabricClientConfig) {
-    const transport = createGrpcWebTransport({ baseUrl: config.gatewayUrl });
+    const isNode = typeof window === "undefined";
+
+    const transport = isNode
+      ? createNodeTransport({
+          baseUrl: config.gatewayUrl,
+          httpVersion: "1.1",
+          nodeOptions: {
+            ca: config.tlsCaCert ? [config.tlsCaCert] : undefined,
+          },
+        })
+      : createBrowserTransport({
+          baseUrl: config.gatewayUrl,
+        });
+
     this.gatewayClient = createClient(Gateway, transport);
     this.eventService = new EventService(config);
   }

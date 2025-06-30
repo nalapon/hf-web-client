@@ -1,4 +1,3 @@
-import { get, del } from "idb-keyval";
 import type {
   CreatedIdentityData,
   ISecurityEngine,
@@ -7,35 +6,45 @@ import type {
 import type { Result, PasswordUnlockOptions } from "../../models";
 import { tryCatch } from "../../utils/try-catch";
 import { PasswordBasedEngine } from "./password-based.engine";
+import type { IKeyValueStore } from "../storage/ikeystore";
 
 // --- Constants ---
 const WEBAUTHN_CREDENTIAL_ID_KEY = "hw-fabric-credential-id";
 
 /**
- * An ISecurityEngine implementation for hardware-backed credentials (like Touch ID, Windows Hello).
- * It's a clever wrapper around the PasswordBasedEngine. It uses the same encrypted
- * storage, but the "password" to unlock it is effectively the user's biometrics,
- * managed by the browser (WebAuthn).
+ * An ISecurityEngine implementation for hardware-backed credentials. It wraps
+ * the PasswordBasedEngine, using its encryption logic but unlocking it with a
+ * secret derived from a WebAuthn ceremony.
  */
 export class HardwareBasedEngine implements ISecurityEngine {
-  // Why reinvent the wheel? PasswordEngine has this stuff.
-  private passwordEngine = new PasswordBasedEngine();
+  private readonly store: IKeyValueStore;
+  private readonly passwordEngine: PasswordBasedEngine;
+
+  constructor(store: IKeyValueStore, passwordEngine: PasswordBasedEngine) {
+    this.store = store;
+    this.passwordEngine = passwordEngine;
+  }
 
   /**
    * Creates the cryptographic part of the identity.
-   * It just calls the password engine's create method, but without a password,
-   * so it will generate a strong mnemonic internally. This mnemonic will be the
-   * secret that the hardware key effectively "unlocks".
+   * This method generates a strong mnemonic which will be protected by the
+   * hardware key, then delegates the actual encryption and storage to the
+   * password-based engine.
+   * @param options The user's certificate and private key.
+   * @param webAuthnCredentialId The ID from the WebAuthn ceremony, which we now store here.
    */
-  public async createIdentity(options: {
-    certPem: string;
-    keyPem: string;
-  }): Promise<Result<CreatedIdentityData>> {
-    // We don't pass a password, so the engine will create a strong random one.
-    return this.passwordEngine.createIdentity({
-      certPem: options.certPem,
-      keyPem: options.keyPem,
-    });
+  public async createIdentity(
+    options: { certPem: string; keyPem: string },
+    webAuthnCredentialId: string,
+  ): Promise<Result<CreatedIdentityData>> {
+    // We pass no password, so the underlying engine will create a strong mnemonic.
+    const createResult = await this.passwordEngine.createIdentity(options);
+
+    // After successful creation, also store the WebAuthn credential ID.
+    if (createResult.success) {
+      await this.store.set(WEBAUTHN_CREDENTIAL_ID_KEY, webAuthnCredentialId);
+    }
+    return createResult;
   }
 
   /**
@@ -43,22 +52,32 @@ export class HardwareBasedEngine implements ISecurityEngine {
    */
   public async doesIdentityExist(): Promise<Result<boolean>> {
     return tryCatch(async () => {
-      const credId = await get(WEBAUTHN_CREDENTIAL_ID_KEY);
+      const credId = await this.store.get(WEBAUTHN_CREDENTIAL_ID_KEY);
       return !!credId;
     });
   }
 
   /**
-   * "Unlocks" the identity. This is a bit of a misnomer. The biometric verification
-   * happens in the `IdentityService` *before* this is called. This method's job
-   * is to use the now-verified "password" (which is actually the recovery phrase)
-   * to decrypt the key from storage.
+   * Retrieves the stored WebAuthn credential ID needed to initiate an authentication ceremony.
+   */
+  public async getCredentialId(): Promise<Result<string>> {
+    return tryCatch(async () => {
+      const credId = await this.store.get<string>(WEBAUTHN_CREDENTIAL_ID_KEY);
+      if (!credId) {
+        throw new Error("Hardware credential ID not found in storage.");
+      }
+      return credId;
+    });
+  }
+
+  /**
+   * "Unlocks" the identity. This is a pass-through to the password engine's unlock
+   * method. The `IdentityService` is responsible for getting the correct
+   * "password" (the recovery phrase) via a WebAuthn ceremony *before* calling this.
    */
   public async unlockIdentity(
     options: PasswordUnlockOptions,
   ): Promise<Result<UnlockedIdentityData>> {
-    // It's just a pass-through to the password engine's unlock method.
-    // The `IdentityService` is responsible for getting the correct password (the mnemonic) first.
     return this.passwordEngine.unlockIdentity(options);
   }
 
@@ -68,7 +87,7 @@ export class HardwareBasedEngine implements ISecurityEngine {
    */
   public async deleteIdentity(): Promise<Result<void>> {
     return tryCatch(async () => {
-      await del(WEBAUTHN_CREDENTIAL_ID_KEY);
+      await this.store.del(WEBAUTHN_CREDENTIAL_ID_KEY);
 
       const deleteResult = await this.passwordEngine.deleteIdentity();
       if (!deleteResult.success) {

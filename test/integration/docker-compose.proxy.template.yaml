@@ -1,0 +1,31 @@
+# ./docker-compose.proxy.template.yaml
+version: "3.8"
+
+services:
+  grpcwebproxy:
+    build:
+      context: { { PROXY_BUILD_CONTEXT } } # Path to the proxy source code
+      dockerfile: Dockerfile
+    container_name: grpcwebproxy
+    ports:
+      - "8088:8088" # gRPC-Web port
+      - "9090:9090" # gRPC port that proxy targets
+    environment:
+      SERVER_LISTEN_ADDR: "0.0.0.0:8088"
+      SERVER_ALLOWED_ORIGINS: "*"
+      FABRIC_GATEWAY_ADDRESS: "{{FABRIC_GATEWAY_ADDRESS}}" # e.g., peer0.org1.example.com:9090
+      FABRIC_HOSTNAME: "peer0.org1.example.com"
+      FABRIC_TLS_ENABLED: "true"
+      FABRIC_TLS_CA_CERT_PATH: ""
+      FABRIC_TLS_CLIENT_CERT_PATH: ""
+      FABRIC_TLS_CLIENT_KEY_PATH: ""
+      LOG_LEVEL: "info"
+      LOG_FORMAT: "text"
+    volumes:
+      - ./proxy_certs:/certs:ro # Mount certs into the proxy container
+    networks:
+      - "{{FABRIC_NETWORK_NAME}}" # Connect to the Fabric network
+
+networks:
+  "{{FABRIC_NETWORK_NAME}}":
+    external: true
