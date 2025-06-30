@@ -229,3 +229,122 @@ This is just the beginning. I am working on:
 - Even more robust identity recovery options.
 
 I welcome any help or advice! Feel free to open an issue or submit a pull request.
+
+## 🚀 Isomorphic Usage (Node.js & Browser)
+
+This library is now **fully isomorphic**: you can use it seamlessly in both Node.js (desktop, server, CLI) and browser environments.
+
+### Quickstart: Node.js
+
+```ts
+import { IdentityService, FabricClient } from "@naladelponce/hf-web-client";
+import { testCredentials } from "./test/test-credentials"; // Or load your own PEMs
+
+// 1. Create or unlock an identity
+const identityService = new IdentityService();
+const password = "your-strong-password";
+
+// Create a new identity (or use .importIdentity for existing PEMs)
+const createResult = await identityService.createPasswordIdentity({
+  certPem: testCredentials.certPem,
+  keyPem: testCredentials.keyPem,
+  password,
+});
+if (!createResult.success) throw createResult.error;
+const appIdentity = createResult.data;
+
+// 2. Use the identity with the Fabric client
+const client = new FabricClient({
+  gatewayUrl: "https://your-fabric-gateway:port",
+  wsUrl: "wss://your-fabric-gateway:port/events",
+  tlsCaCert: "-----BEGIN CERTIFICATE-----...-----END CERTIFICATE-----", // optional
+});
+
+const result = await client.evaluateTransaction(
+  {
+    mspId: "Org1MSP",
+    channelName: "mychannel",
+    chaincodeName: "mycc",
+    functionName: "query",
+    args: ["a"],
+  },
+  appIdentity
+);
+
+console.log(result);
+```
+
+---
+
+### Quickstart: Browser
+
+```js
+import { IdentityService, FabricClient } from "@naladelponce/hf-web-client";
+
+// 1. Create or unlock an identity (uses IndexedDB for storage)
+const identityService = new IdentityService();
+const password = prompt("Enter your password");
+
+// Create a new identity (or use .importIdentity for existing PEMs)
+const createResult = await identityService.createPasswordIdentity({
+  certPem: "...", // Your PEM
+  keyPem: "...", // Your PEM
+  password,
+});
+if (!createResult.success) throw createResult.error;
+const appIdentity = createResult.data;
+
+// 2. Use the identity with the Fabric client
+const client = new FabricClient({
+  gatewayUrl: "https://your-fabric-gateway:port",
+  wsUrl: "wss://your-fabric-gateway:port/events",
+  tlsCaCert: "-----BEGIN CERTIFICATE-----...-----END CERTIFICATE-----", // optional
+});
+
+const result = await client.evaluateTransaction(
+  {
+    mspId: "Org1MSP",
+    channelName: "mychannel",
+    chaincodeName: "mycc",
+    functionName: "query",
+    args: ["a"],
+  },
+  appIdentity
+);
+
+console.log(result);
+```
+
+---
+
+### Environment Differences
+
+- **Node.js**: Uses the filesystem for secure identity storage (`FileStore`).
+- **Browser**: Uses IndexedDB for secure identity storage (`IndexedDBStore`).
+- **Hardware-backed identity**: Only available in browsers with WebAuthn support.
+- **WebSockets**: Uses `ws` in Node.js, browser-native in browser.
+
+---
+
+### Test It Yourself
+
+- Run `pnpm test:isomorphic` to verify Node.js support.
+- See `test/isomorphic.test.ts` for a full working example.
+
+### ⚠️ Test Credentials
+
+For integration or isomorphic tests, you must provide your own test certificate and private key in PEM format.
+**Do not commit private keys to the repository.**
+
+Example format:
+
+```ts
+export const testCredentials = {
+  certPem: `-----BEGIN CERTIFICATE-----
+...your test certificate...
+-----END CERTIFICATE-----`,
+  keyPem: `-----BEGIN PRIVATE KEY-----
+...your test private key...
+-----END PRIVATE KEY-----`,
+};
+```
