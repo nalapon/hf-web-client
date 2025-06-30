@@ -22,13 +22,36 @@ The idea behind this library is simple:
 
 I am obsessed with security and data security. Here's what I've built under the hood to protect the users' identities.
 
-- **💻 Web Worker Isolation:** All cryptographic operations (signing, encryption) happen in a completely separate thread. The main UI thread, vulnerable to XSS attacks, never even sees a private key. Your keys live in a padded cell, guarded by a very serious bouncer, and only respond to specific, secure requests.
+- **Web Worker Isolation:** All cryptographic operations (signing, encryption) happen in a completely separate thread. The main UI thread, vulnerable to XSS attacks, never even sees a private key. Your keys live in a padded cell, guarded by a very serious bouncer, and only respond to specific, secure requests.
 
-- **🔐 God-Tier Key Derivation (PBKDF2):** We know users choose terrible passwords. That's why we use PBKDF2 with a quarter-million iterations. This turns a password like `"password123"` into a decent-level encryption key, making brute-force attacks slower... or it should be.
+- **God-Tier Key Derivation (PBKDF2):** We know users choose terrible passwords. That's why we use PBKDF2 with a quarter-million iterations. This turns a password like `"password123"` into a decent-level encryption key, making brute-force attacks slower... or it should be.
 
-- **🤫 Shamir's Backup Plan (SSS):** What if a user forgets their password? When an identity is created, we use Shamir's Secret Sharing to split the master secret into "recovery shares." Think of them like Voldemort's Horcruxes. The user can distribute these shares to trusted friends, other devices, or a safe. To recover the account, they only need a subset of them (e.g., 3 out of 5). It's decentralized recovery, as it should be.
+- **Shamir's Backup Plan (SSS):** What if a user forgets their password? When an identity is created, we use Shamir's Secret Sharing to split the master secret into "recovery shares." The user can distribute these shares to trusted friends, other devices, or a safe. To recover the account, they only need a subset of them (e.g., 3 out of 5). It's decentralized recovery, as it should be. (Note: Only share generation is implemented; recovery is not yet available.)
 
-- **🌍 Isomorphic-ish Design:** In theory, the core of this library should work in both the browser and Node.js. This allows us to run lightning-fast E2E tests in a server environment. Is it thoroughly tested? Nope. Does it work? I hope so. Pull Requests are welcome!
+- **Isomorphic Design:** The core of this library works in both the browser and Node.js. This allows us to run E2E tests in a server environment and use the same codebase for desktop, CLI, and web apps.
+
+## Current Status & Limitations
+
+- The library is isomorphic and works in both Node.js and browser environments.
+- Test credentials are not provided in the repository. To run integration or isomorphic tests, you must supply your own Fabric-compatible certificate and private key in PEM format (see example below). Do not commit private keys to the repository.
+- There is currently no built-in way to generate Fabric-compatible credentials for testing. You must use credentials from your own Fabric network or generate them externally.
+- Shamir's Secret Sharing is partially implemented: only share generation is present. Recovery from shares is not yet implemented.
+- The test suite currently only verifies Node.js support. Browser-based automated tests are not yet included.
+- Hardware-backed identity is only available in browsers with WebAuthn support and is gracefully disabled in Node.js.
+
+Example test credentials format:
+
+```ts
+// test/test-credentials.ts
+export const testCredentials = {
+  certPem: `-----BEGIN CERTIFICATE-----
+  ...your test certificate...
+  -----END CERTIFICATE-----`,
+  keyPem: `-----BEGIN PRIVATE KEY-----
+  ...your test private key...
+  -----END PRIVATE KEY-----`,
+};
+```
 
 ---
 
@@ -44,59 +67,6 @@ TODO: explain this part.
 npm install @naladelponce/hf-web-client
 # or
 pnpm add @naladelponce/hf-web-client
-```
-
-#### 2. The Code
-
-```typescript
-import { FabricClient, IdentityService } from "@nalapon/hf-web-client";
-
-// --- CONFIGURATION ---
-const GATEWAY_PROXY_URL = "http://localhost:8088"; // Your gateway proxy
-const MSP_ID = "Org1MSP";
-const CHANNEL_NAME = "mychannel";
-const CHAINCODE_NAME = "basic";
-
-// A placeholder to show the structure. In a real app,
-// you'd get this from `identityService.unlockIdentity()`.
-async function getMyIdentity() {
-  const myUnlockedIdentity = {
-    cert: "-----BEGIN CERTIFICATE-----\n...",
-    sign: async (dataToSign: Uint8Array): Promise<Uint8Array> => {
-      // This method is secretly connected to the secure worker.
-      console.log("Signing data of length:", dataToSign.length);
-      // ... returns a real signature ...
-      return new Uint8Array(64);
-    },
-  };
-  return myUnlockedIdentity;
-}
-
-async function main() {
-  console.log("Initializing clients...");
-  const fabricClient = new FabricClient({ gatewayUrl: GATEWAY_URL });
-  const identity = await getMyIdentity();
-
-  console.log("Evaluating transaction: GetAllAssets...");
-
-  const result = await fabricClient.evaluateTransaction(
-    {
-      mspId: MSP_ID,
-      channelName: CHANNEL_NAME,
-      chaincodeName: CHAINCODE_NAME,
-      functionName: "GetAllAssets",
-    },
-    identity,
-  );
-
-  if (result.success) {
-    console.log("✅ Success! Assets found:", result.data.parsedData);
-  } else {
-    console.error("❌ Transaction failed!", result.error.message);
-  }
-}
-
-main().catch(console.error);
 ```
 
 ---
