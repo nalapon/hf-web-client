@@ -27,7 +27,7 @@ import {
 } from "../protobuf/parser";
 import { create, toBinary } from "@bufbuild/protobuf";
 import { SignedProposalSchema } from "../generated_protos/peer/proposal_pb";
-import { signEnvelope, signProposal } from "../crypto/signing";
+import { signFabricSignature, signProposal } from "../crypto/signing";
 import {
   buildProposalPayload,
   generateTransactionId,
@@ -136,7 +136,7 @@ export class FabricClient {
     });
 
     const requestBytes = toBinary(CommitStatusRequestSchema, request);
-    const signature = await identity.sign(requestBytes);
+    const signature = await signFabricSignature(requestBytes, identity);
 
     const signedRequest = create(SignedCommitStatusRequestSchema, {
       request: requestBytes,
@@ -268,7 +268,7 @@ export class FabricClient {
   ): Promise<Result<SubmittedTransaction>> {
     return tryCatch(async () => {
       // 1. Firmar el payload del envelope (el resultado de prepareTransaction)
-      const envelopeSignature = await signEnvelope(
+      const envelopeSignature = await signFabricSignature(
         params.preparedTransaction,
         identity,
       );

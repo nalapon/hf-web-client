@@ -3,13 +3,13 @@
  */
 import { describe, it, expect, beforeAll } from "vitest";
 import { FabricClient } from "../../src/client/fabric-client";
+import { IdentityService } from "../../src/identity/identity-service";
 import type { AppIdentity } from "../../src/models";
 import * as fs from "fs";
 import * as path from "path";
-import * as jose from "jose";
 
 // Test configuration
-const GATEWAY_URL = "https://localhost:8088";
+const GATEWAY_URL = "http://localhost:8088";
 const CHANNEL_NAME = "mychannel";
 const CHAINCODE_NAME = "basic";
 const MSP_ID = "Org1MSP";
@@ -52,31 +52,24 @@ describe("FabricClient Integration Tests", () => {
     const tlsCaCert = fs.readFileSync(PEER_TLS_CA_CERT_PATH, "utf8");
     client = new FabricClient({
       gatewayUrl: GATEWAY_URL,
-      tlsCaCert,
+      wsUrl: "ws://localhost:8088/ws/deliver",
     });
 
-    // --- 2. Load crypto material and reconstruct PEM key ---
+    // --- 2. Load crypto material ---
     const certPem = fs.readFileSync(ADMIN_CERT_PATH, "utf8");
     const adminKeyPath = findPrivateKeyFile(ADMIN_KEYSTORE_PATH);
     const keyFileContent = fs.readFileSync(adminKeyPath, "utf8");
-    const keyPem = `-----BEGIN PRIVATE KEY-----\n${keyFileContent}\n-----END PRIVATE KEY-----`;
 
-    // --- 3. Create a manual AppIdentity for Node.js testing ---
-    const privateKey = await jose.importPKCS8(keyPem, "ES256");
-
-    testIdentity = {
-      cert: certPem,
-      sign: async (dataToSign: Uint8Array): Promise<Uint8Array> => {
-        const signature = await new jose.CompactSign(dataToSign)
-          .setProtectedHeader({ alg: "ES256" })
-          .sign(privateKey);
-        
-        // Fabric expects a raw signature, but jose produces a JWS.
-        // We need to extract the signature part.
-        const jwsParts = signature.split(".");
-        return Buffer.from(jwsParts[2], "base64url");
-      },
-    };
+    // --- 3. Use IdentityService for onboarding ---
+    const identityService = new IdentityService();
+    const password = "integration-test-password";
+    const createResult = await identityService.createPasswordIdentity({
+      certPem,
+      keyPem: keyFileContent,
+      password,
+    });
+    if (!createResult.success) throw createResult.error;
+    testIdentity = createResult.data;
   }, 60000);
 
   it("should successfully evaluate a transaction (GetAllAssets)", async () => {
@@ -90,6 +83,9 @@ describe("FabricClient Integration Tests", () => {
       },
       testIdentity,
     );
+    if (!result.success) {
+      console.error("[Test] GetAllAssets error:", result.error);
+    }
     expect(result.success).toBe(true);
     if (result.success) {
       expect(Array.isArray(result.data.parsedData)).toBe(true);
@@ -116,6 +112,9 @@ describe("FabricClient Integration Tests", () => {
       },
       testIdentity,
     );
+    if (!result.success) {
+      console.error("[Test] CreateAsset error:", result.error);
+    }
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.txId).toBeDefined();
@@ -136,6 +135,9 @@ describe("FabricClient Integration Tests", () => {
       },
       testIdentity,
     );
+    if (!readResult.success) {
+      console.error("[Test] ReadAsset error:", readResult.error);
+    }
     expect(readResult.success).toBe(true);
     if (readResult.success) {
       const asset = readResult.data.parsedData;
@@ -158,11 +160,14 @@ describe("FabricClient Integration Tests", () => {
       },
       testIdentity,
     );
+    if (result.success) {
+      console.error("[Test] NonExistentFunction should have failed but succeeded:", result.data);
+    } else {
+      console.error("[Test] NonExistentFunction error:", result.error);
+    }
     expect(result.success).toBe(false);
     expect(result.error).toBeInstanceOf(Error);
-    // Check for a specific message from the Fabric peer
-    expect(result.error?.message).toMatch(
-      /function "NonExistentFunction" not found/,
-    );
+    // Ajusta la expresión regular para aceptar el mensaje real del peer
+    expect(result.error?.message).toMatch(/Function NonExistentFunction not found/);
   }, 60000);
 });

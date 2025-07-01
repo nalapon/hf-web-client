@@ -53,7 +53,7 @@ function preventMalleability(signature: Uint8Array): Uint8Array {
  * @param dataToSign The bytes that need a signature.
  * @param identity The active identity object with its `.sign()` method.
  */
-async function signAndFormat(
+export async function signFabricSignature(
   dataToSign: Uint8Array,
   identity: AppIdentity,
 ): Promise<Uint8Array> {
@@ -66,22 +66,21 @@ async function signAndFormat(
 }
 
 /**
- * Firma una propuesta de Fabric y devuelve la firma en formato DER.
- * Este es el formato que espera el campo `signature` de un `SignedProposal`.
+ * @deprecated Use signFabricSignature instead.
  */
 export async function signProposal(
   proposalBytes: Uint8Array,
   identity: AppIdentity,
 ): Promise<Uint8Array> {
-  return signAndFormat(proposalBytes, identity);
+  return signFabricSignature(proposalBytes, identity);
 }
 
 /**
- * Signs a Fabric envelope.
+ * @deprecated Use signFabricSignature instead.
  */
 export async function signEnvelope(
   envelopePayload: Uint8Array,
   identity: AppIdentity,
 ): Promise<Uint8Array> {
-  return signAndFormat(envelopePayload, identity);
+  return signFabricSignature(envelopePayload, identity);
 }
