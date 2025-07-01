@@ -1,27 +1,22 @@
 {
   "compilerOptions": {
-    "strict": true,
-    "noImplicitAny": true,
-    "strictNullChecks": true,
-    "alwaysStrict": true,
+    "target": "ES2020",
     "module": "ESNext",
+    "lib": ["ESNext", "DOM"],
+    "rootDir": ".",
+    "outDir": "dist",
+    "declaration": true,
+    "sourceMap": true,
+    "strict": true,
     "moduleResolution": "node",
     "esModuleInterop": true,
-    "allowSyntheticDefaultImports": true,
-    "resolveJsonModule": true,
-    "target": "ES2022",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "rootDir": "./src",
-    "outDir": "./dist",
-    "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
-    "removeComments": false,
-    "preserveConstEnums": true,
-    "isolatedModules": true
+    "forceConsistentCasingInFileNames": true
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"]
+  "include": [
+    "src/**/*.ts",
+    "test/integration/**/*.test.ts",
+    "test/integration/setup.ts"
+  ],
+  "exclude": ["node_modules", "dist", "test/integration/fabric-samples"]
 }

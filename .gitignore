@@ -13,6 +13,11 @@ fabric-protos
 # Test infrastructure
 _test-infra/
 
+# Integration test generated files
+test/integration/docker-compose-proxy.yml
+test/integration/organizations/
+test/integration/grpcweb-proxy-gw-src/
+
 # Logs
 npm-debug.log*
 yarn-debug.log*
@@ -26,3 +31,6 @@ yarn-error.log*
 *.njsproj
 *.sln
 *.sw?
+
+# Local files
+*.txt

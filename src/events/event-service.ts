@@ -21,11 +21,26 @@ import { signProposal } from "../crypto/signing";
 import { createSignedDeliverRequest } from "../protobuf/deliver-builder";
 import { createSerializedIdentityBytes } from "../protobuf";
 
+// --- Isomorphic WebSocket Helper ---
+async function getWebSocketClass() {
+  if (typeof window === "undefined") {
+    const wsModule = await import("ws");
+    return wsModule.default;
+  } else {
+    return self.WebSocket;
+  }
+}
+
 export class EventService {
   private readonly gatewayClient: Client<typeof Gateway>;
   private readonly wsBaseUrl: string;
 
   constructor(config: FabricClientConfig) {
+    if (!config.wsUrl) {
+      throw new Error(
+        "EventService requires a `wsUrl` in the client configuration.",
+      );
+    }
     const transport = createGrpcWebTransport({ baseUrl: config.gatewayUrl });
     this.gatewayClient = createClient(Gateway, transport);
     this.wsBaseUrl = config.wsUrl;
@@ -109,7 +124,8 @@ export class EventService {
     });
     const requestBytes = toBinary(EnvelopeSchema, signedRequestEnvelope);
 
-    const socket = new WebSocket(wsUrl.toString());
+    const WS = await getWebSocketClass();
+    const socket: any = new WS(wsUrl.toString());
     socket.binaryType = "arraybuffer";
 
     try {
@@ -152,8 +168,8 @@ export class EventService {
       }
     } finally {
       if (
-        socket.readyState === WebSocket.OPEN ||
-        socket.readyState === WebSocket.CONNECTING
+        socket.readyState === WS.OPEN ||
+        socket.readyState === WS.CONNECTING
       ) {
         socket.close(1000, "Stream finished by client");
       }
@@ -190,8 +206,8 @@ export class EventService {
     });
   }
 
-  private waitForSocketOpen(
-    socket: WebSocket,
+  private async waitForSocketOpen(
+    socket: any,
     signal: AbortSignal,
   ): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -202,10 +218,10 @@ export class EventService {
       };
       signal.addEventListener("abort", abortHandler, { once: true });
 
-      socket.onopen = () => {
+      socket.addEventListener("open", (event: any) => {
         signal.removeEventListener("abort", abortHandler);
         resolve();
-      };
+      });
       socket.onerror = () => {
         signal.removeEventListener("abort", abortHandler);
         reject(new Error("Fallo al establecer la conexión WebSocket."));
@@ -213,8 +229,8 @@ export class EventService {
     });
   }
 
-  private waitForSocketMessage(
-    socket: WebSocket,
+  private async waitForSocketMessage(
+    socket: any,
     signal: AbortSignal,
   ): Promise<MessageEvent<ArrayBuffer>> {
     return new Promise((resolve, reject) => {
@@ -222,11 +238,11 @@ export class EventService {
       const abortHandler = () => reject(new Error("AbortError"));
       signal.addEventListener("abort", abortHandler, { once: true });
 
-      socket.onmessage = (event) => {
+      socket.addEventListener("message", (event: any) => {
         signal.removeEventListener("abort", abortHandler);
         resolve(event);
-      };
-      socket.onclose = (event) => {
+      });
+      socket.onclose = (event: any) => {
         signal.removeEventListener("abort", abortHandler);
         reject(
           new Error(
