@@ -1,5 +1,6 @@
 import { promises as fs } from "fs";
 import { IKeyValueStore } from "./ikeystore";
+import * as path from "path";
 
 // Helper functions to handle serialization of binary data to JSON
 function replacer(_key: string, value: any) {
@@ -43,13 +44,22 @@ export class FileStore implements IKeyValueStore {
     this.filePath = filePath;
   }
 
-  private async load(): Promise<void> {
-    if (this.isLoaded) return;
+  public async load(): Promise<void> {
     try {
       const data = await fs.readFile(this.filePath, "utf-8");
-      // Use the reviver when parsing the JSON data
-      const parsedData = JSON.parse(data, reviver);
-      this.inMemoryCache = new Map(Object.entries(parsedData));
+      if (!data.trim()) {
+        this.inMemoryCache = new Map();
+        return;
+      }
+      try {
+        const parsed = JSON.parse(data, reviver);
+        this.inMemoryCache = new Map(Object.entries(parsed));
+      } catch (e) {
+        // If not valid JSON, reset the file and cache
+        await fs.writeFile(this.filePath, "", "utf-8");
+        this.inMemoryCache = new Map();
+        console.warn(`[FileStore] Corrupted identity file detected and reset: ${this.filePath}`);
+      }
     } catch (error: any) {
       // If the file doesn't exist, that's fine. We'll create it on the first `set`.
       if (error.code !== "ENOENT") {
@@ -57,7 +67,6 @@ export class FileStore implements IKeyValueStore {
       }
       this.inMemoryCache = new Map();
     }
-    this.isLoaded = true;
   }
 
   private async save(): Promise<void> {
@@ -66,7 +75,17 @@ export class FileStore implements IKeyValueStore {
         ? JSON.stringify(Object.fromEntries(this.inMemoryCache), replacer)
         : "";
 
-    await fs.writeFile(this.filePath, data, "utf-8");
+    const dir = path.dirname(this.filePath);
+    console.log(`[FileStore] Attempting to create directory: ${dir}`);
+    await fs.mkdir(dir, { recursive: true });
+    console.log(`[FileStore] Directory created or already exists: ${dir}`);
+
+    const tempPath = this.filePath + ".tmp";
+    console.log(`[FileStore] Writing to temporary file: ${tempPath}`);
+    await fs.writeFile(tempPath, data, "utf-8");
+    console.log(`[FileStore] Renaming ${tempPath} to ${this.filePath}`);
+    await fs.rename(tempPath, this.filePath);
+    console.log(`[FileStore] Save successful to: ${this.filePath}`);
   }
 
   public async get<T>(key: string): Promise<T | undefined> {
@@ -93,6 +112,14 @@ export class FileStore implements IKeyValueStore {
 
   public async clear(): Promise<void> {
     this.inMemoryCache.clear();
+    await this.save();
+  }
+
+  public async setMany(entries: Record<string, any>): Promise<void> {
+    await this.load();
+    for (const [key, value] of Object.entries(entries)) {
+      this.inMemoryCache.set(key, value);
+    }
     await this.save();
   }
 } 

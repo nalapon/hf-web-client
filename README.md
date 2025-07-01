@@ -1,5 +1,9 @@
 # Another Hyperledger Fabric SDK... But At Least This One is for the Web.
 
+> [!WARNING]
+> **This library is experimental and under heavy development.**
+> The API is subject to change, and it is not recommended for production use at this time. Please use at your own risk.
+
 Oh shiet, here we go again. Yeah, I know what you're thinking. _Another_ Fabric SDK? Before you close this tab, let me tell you this one is different: **it's a web client.**
 
 Let's be honest, using Fabric from a browser has historically been... a myth. An urban legend. At least I have not found anything in all these years, except for an abandoned git branch from 3 years ago. It's not like the maintainers have bent over backwards to make it possible, either. I've tried it multiple times and had about as much success as Microsoft did with the Windows Phone. Remember that? Exactly.
@@ -55,142 +59,68 @@ export const testCredentials = {
 
 ---
 
-## Quick Start: From Zero to Fabric in 60 Seconds
+## Getting Started: From Zero to Fabric in 60 Seconds
 
-Enough talk. Let's see some code. Here's how you evaluate a transaction against a running network.
-Let's take into consideration that this projects needs a proxy, a grpc-web proxy to work.
-TODO: explain this part.
+This project is designed to get you up and running with a local Hyperledger Fabric development environment with a single command. No more hunting for credentials or configuring networks.
 
-#### 1. Installation
+### 1. Installation & Setup
 
-```bash
-npm install @naladelponce/hf-web-client
-# or
-pnpm add @naladelponce/hf-web-client
-```
-
----
-
-## Listening for Network Events
-
-So, you've sent a transaction. Now what? You wait? Refresh the page like it's 2005? No. You listen for events. This client gives you two ways to do that, because Fabric is "special" and has two different event streams.
-
-### 1. Listening for Chaincode Events
-
-This is what you'll use most of the time. Your chaincode screams into the void, and you want to hear it. This uses the Gateway's event stream.
-
-**Use Case:** Your chaincode emits an `AssetCreated` event, and you want your UI to update in real-time without the user hitting refresh.
-
-```typescript
-import { FabricClient } from "@nalapon/hf-web-client";
-
-async function listenForChaincode(client: FabricClient, identity: AppIdentity) {
-  console.log("Setting up chaincode event listener...");
-
-  // AbortController is your friend. It's how you say "okay, I'm done listening."
-  const abortController = new AbortController();
-  const signal = abortController.signal;
-
-  // This returns an AsyncGenerator. It's a fancy loop that waits for new events.
-  const eventStream = client.listenToChaincodeEvents(
-    {
-      mspId: MSP_ID,
-      channelName: CHANNEL_NAME,
-      chaincodeName: CHAINCODE_NAME,
-    },
-    identity,
-    signal,
-  );
-
-  try {
-    for await (const event of eventStream) {
-      console.log("🎉 New Chaincode Event Received:", event);
-      // Your logic here: update UI, show a notification, etc.
-      // Example: if (event.eventName === 'AssetCreated') { ... }
-
-      // If you want to stop listening after the first event, you can do this:
-      // abortController.abort();
-    }
-  } catch (error) {
-    if (signal.aborted) {
-      console.log("Event listener was gracefully stopped.");
-    } else {
-      console.error("🔥 Ouch! Event listener crashed:", error);
-    }
-  }
-}
-
-// Example of how to stop it after 10 seconds
-// setTimeout(() => abortController.abort(), 10000);
-```
-
-### 2. Listening for Block Events
-
-This is more low-level. You get a notification for every single block committed to the channel. It's powerful, but also noisy. This requires a direct connection to a peer (via a WebSocket proxy, because browsers).
-
-**Use Case:** You're building a block explorer, a monitoring dashboard, or you just enjoy watching the world burn, one block at a time.
-
-```typescript
-import { FabricClient } from "@nalapon/hf-web-client";
-
-// You'll need the WebSocket proxy URL for this one.
-const WS_PROXY_URL = "ws://localhost:7052"; 
-
-async function listenForBlocks(identity: AppIdentity) {
-  // Note that wsUrl is now part of the client config
-  const client = new FabricClient({ gatewayUrl: GATEWAY_PROXY_URL, wsUrl: WS_PROXY_URL });
-  
-  console.log("Setting up block event listener...");
-
-  const abortController = new AbortController();
-  const signal = abortController.signal;
-
-  const blockStream = client.listenToBlockEvents(
-    {
-      mspId: MSP_ID,
-      channelName: CHANNEL_NAME,
-      // You need to specify which peer to listen to.
-      targetPeer: "peer0.org1.example.com", 
-      targetHostname: "peer0.org1.example.com", // And its hostname for TLS
-    },
-    identity,
-    signal,
-  );
-
-  try {
-    for await (const block of blockStream) {
-      console.log(`📦 New Block Committed: #${block.number}`);
-      // The block is a "FilteredBlock", so it has transactions but not all the details.
-      console.log(`  - Contains ${block.filteredTransactions.length} transactions.`);
-    }
-  } catch (error) {
-    if (signal.aborted) {
-      console.log("Block listener was gracefully stopped.");
-    } else {
-      console.error("🔥 Block listener crashed:", error);
-    }
-  }
-}
-```
-
----
-
-## Development & Testing
-
-The entire test infrastructure is kinda automated. To run a full End-to-End test suite that:
-
-1.  Downloads Fabric and its binaries (if needed).
-2.  Spins up a Docker network (if needed).
-3.  Deploys and initializes a chaincode (asset-transfer-basic)
-4.  Runs a comprehensive suite of tests against it (For now it is not comprehensive or anything. WIP)
-
-...all you have to do is run:
+First, clone the repository and install the dependencies:
 
 ```bash
-npm run test:e2e
+git clone https://github.com/nalapon/hf-web-client.git
+cd hf-web-client
+npm install
 ```
 
-Seriously. That's it. I do not like projects with long setups. For a total cleanup, run `npm run test:e2e:teardown`.
+Next, run the automated setup script. This will:
+1.  Download Hyperledger Fabric binaries and Docker images.
+2.  Start a local Fabric test network using Docker.
+3.  Deploy and initialize the `asset-transfer-basic` chaincode.
+4.  Start a gRPC-web proxy to enable browser communication.
+5.  **Crucially, it will automatically generate the `test/test-credentials.ts` file with the necessary certificates and keys to connect to the network.**
+
+```bash
+npm run test:setup
+```
+
+You now have a fully functional local development environment!
+
+### 2. Running the Node.js Example
+
+To see the client in action, run the "hello world" example. This script uses the generated credentials to connect to the network and query the chaincode for all assets.
+
+```bash
+npm run example:node
+```
+
+You should see the list of initial assets printed to your console.
+
+### 3. Running the Tests
+
+To verify that everything is working correctly, you can run the isomorphic tests. These tests run in a Node.js environment and cover the core functionality of the library.
+
+```bash
+npm run test:isomorphic
+```
+
+### 4. Tearing Down the Environment
+
+When you're finished, you can tear down the entire environment with a single command. This will stop and remove all Docker containers, volumes, and generated credential files.
+
+```bash
+npm run test:teardown
+```
+
+### What is the gRPC-web Proxy?
+
+Web browsers cannot directly communicate with gRPC services like Hyperledger Fabric's Gateway. The `gRPC-web` proxy acts as a translator.
+
+-   Your browser sends standard HTTP requests to the proxy.
+-   The proxy translates these requests into gRPC and forwards them to the Fabric Gateway.
+-   The proxy receives the gRPC response, translates it back to HTTP, and sends it to your browser.
+
+The `test:setup` script automatically configures and runs this proxy for you in a Docker container, so you don't have to worry about the details.
 
 ## What's Next? (The Roadmap)
 

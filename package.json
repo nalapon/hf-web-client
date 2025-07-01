@@ -39,7 +39,8 @@
     "test": "vitest run --config vitest.integration.config.ts",
     "test:isomorphic": "vitest run test/isomorphic.test.ts",
     "test:setup": "cd test/integration && ./integration.sh up",
-    "test:teardown": "cd test/integration && ./integration.sh down"
+    "test:teardown": "cd test/integration && ./integration.sh down",
+    "example:node": "ts-node examples/hello-world.ts"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.5.2",
@@ -75,6 +76,7 @@
     "rimraf": "^6.0.1",
     "ts-node": "^10.9.2",
     "tsup": "^8.5.0",
+    "tsx": "^4.20.3",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"
   },

@@ -74,12 +74,24 @@ export class PasswordBasedEngine implements ISecurityEngine {
         keyPemBytes,
       );
 
-      await Promise.all([
-        this.store.set(DB_KEYS.ENCRYPTED_KEY, encryptedKeyPem),
-        this.store.set(DB_KEYS.CERTIFICATE, options.certPem),
-        this.store.set(DB_KEYS.SALT, salt),
-        this.store.set(DB_KEYS.IV, iv),
-      ]);
+      // Guardar los datos de la identidad
+      if (typeof window === "undefined" && typeof (this.store as any).setMany === "function") {
+        // Node.js: usa setMany para una sola escritura
+        await (this.store as any).setMany({
+          [DB_KEYS.ENCRYPTED_KEY]: encryptedKeyPem,
+          [DB_KEYS.CERTIFICATE]: options.certPem,
+          [DB_KEYS.SALT]: salt,
+          [DB_KEYS.IV]: iv,
+        });
+      } else {
+        // Navegador: múltiples sets en paralelo
+        await Promise.all([
+          this.store.set(DB_KEYS.ENCRYPTED_KEY, encryptedKeyPem),
+          this.store.set(DB_KEYS.CERTIFICATE, options.certPem),
+          this.store.set(DB_KEYS.SALT, salt),
+          this.store.set(DB_KEYS.IV, iv),
+        ]);
+      }
 
       const signingKey = await jose.importPKCS8(options.keyPem, "ES256");
       const secretBytes = new TextEncoder().encode(secretToUse);

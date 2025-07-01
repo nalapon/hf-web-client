@@ -12,6 +12,8 @@ import { WorkerAction, type ISecurityEngine } from "./interfaces";
 import type { AppIdentity, Result } from "../models";
 import * as jose from "jose";
 import { getSubtleCrypto } from "../crypto/crypto-provider";
+import * as path from "path";
+import * as os from "os";
 
 const isNode = typeof window === "undefined";
 
@@ -30,11 +32,9 @@ export class CryptoEngine {
   constructor() {
     let store: IKeyValueStore;
     if (isNode) {
-      // In Node.js, we use a file-based store in the user's temp directory.
-      const path = require("path");
-      const os = require("os");
+      // In Node.js, we use a file-based store in the current working directory for persistence.
       const filePath = path.join(
-        os.tmpdir(),
+        process.cwd(),
         "fabric-web-client-identity.json",
       );
       store = new FileStore(filePath);
