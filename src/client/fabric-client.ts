@@ -40,6 +40,7 @@ import { ChaincodeEventsResponse, FilteredBlock } from "../models";
 
 import { createSerializedIdentityBytes } from "../protobuf";
 import { TxValidationCode } from "../generated_protos/peer/transaction_pb";
+import { EventCallbacks } from "../models/events.types";
 
 export class FabricClient {
   private readonly gatewayClient: Client<typeof Gateway>;
@@ -64,15 +65,6 @@ export class FabricClient {
     this.eventService = new EventService(config);
   }
 
-  /**
-   * Submits a transaction and waits for it to be committed to the ledger.
-   * This method abstracts the entire transaction lifecycle (endorse, submit, commit)
-   * into a single, synchronous-like call.
-   *
-   * @param params The details of the transaction proposal.
-   * @param identity The client identity to sign the proposal.
-   * @returns A Result containing the transaction ID and the payload returned by the chaincode, or an error if the transaction fails at any stage.
-   */
   /**
    * Submits a transaction and waits for it to be committed to the ledger.
    * This method abstracts the entire transaction lifecycle (endorse, submit, commit)
@@ -295,37 +287,38 @@ export class FabricClient {
     }, getGroundedError);
   }
 
+
+  // --- Métodos de Eventos con Callbacks ---
+
   /**
-   * Establece una conexión para escuchar eventos emitidos por un chaincode específico.
-   * Devuelve un Generador Asíncrono que produce respuestas a medida que llegan.
+   * Registers a listener for chaincode events, using a callback-based approach.
    *
-   * @param params Los detalles del canal y chaincode a escuchar.
-   * @param identity La identidad del cliente para firmar la petición de eventos.
-   * @param signal Un AbortSignal para cancelar la suscripción y cerrar el stream.
-   * @yields {ChaincodeEventsResponse} Un objeto de respuesta por cada bloque que contenga eventos.
+   * @param params The details of the channel and chaincode to listen to.
+   * @param identity The client identity for signing the event request.
+   * @param callbacks An object containing `onData`, `onError`, and optional `onClose` callbacks.
+   * @returns A function to unsubscribe and close the event stream.
    */
-  public listenToChaincodeEvents(
+  public onChaincodeEvent(
     params: ChaincodeEventParams,
     identity: AppIdentity,
-    signal: AbortSignal,
-  ): AsyncGenerator<ChaincodeEventsResponse> {
-    return this.eventService.listenToChaincodeEvents(params, identity, signal);
+    callbacks: EventCallbacks<ChaincodeEventsResponse>,
+  ): () => void {
+    return this.eventService.onChaincodeEvent(params, identity, callbacks);
   }
 
   /**
-   * Establece una conexión WebSocket para escuchar eventos de bloque filtrados de un canal.
-   * Devuelve un Generador Asíncrono que produce bloques a medida que son commiteados.
+   * Registers a listener for block events, using a callback-based approach.
    *
-   * @param params Los detalles del canal y peer a escuchar.
-   * @param identity La identidad del cliente para firmar la petición de deliver.
-   * @param signal Un AbortSignal para cancelar la suscripción y cerrar el WebSocket.
-   * @yields {FilteredBlock} Un bloque filtrado cada vez que se commitea uno nuevo.
+   * @param params The details of the channel and peer to listen to.
+   * @param identity The client identity for signing the deliver request.
+   * @param callbacks An object containing `onData`, `onError`, and optional `onClose` callbacks.
+   * @returns A function to unsubscribe and close the event stream.
    */
-  public listenToBlockEvents(
+  public onBlockEvent(
     params: BlockEventParams,
     identity: AppIdentity,
-    signal: AbortSignal,
-  ): AsyncGenerator<FilteredBlock> {
-    return this.eventService.listenToBlockEvents(params, identity, signal);
+    callbacks: EventCallbacks<FilteredBlock>,
+  ): () => void {
+    return this.eventService.onBlockEvent(params, identity, callbacks);
   }
 }

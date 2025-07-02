@@ -12,6 +12,7 @@ import {
   AppIdentity,
   BlockEventParams,
   ChaincodeEventParams,
+  EventCallbacks,
   FabricClientConfig,
   FilteredBlock,
 } from "../models";
@@ -20,6 +21,29 @@ import { EnvelopeSchema } from "../generated_protos/common/common_pb";
 import { signProposal } from "../crypto/signing";
 import { createSignedDeliverRequest } from "../protobuf/deliver-builder";
 import { createSerializedIdentityBytes } from "../protobuf";
+
+async function consumeAsyncGenerator<T>(
+  generator: AsyncGenerator<T>,
+  callbacks: EventCallbacks<T>,
+  signal: AbortSignal,
+): Promise<void> {
+  try {
+    for await (const data of generator) {
+      if (signal.aborted) break;
+      callbacks.onData(data);
+    }
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      // Silently ignore abort errors as they are expected.
+    } else {
+      callbacks.onError(error as Error);
+    }
+  } finally {
+    if (callbacks.onClose) {
+      callbacks.onClose();
+    }
+  }
+}
 
 // --- Isomorphic WebSocket Helper ---
 async function getWebSocketClass() {
@@ -177,6 +201,52 @@ export class EventService {
         `[EventService] Stream de bloques para ${params.channelName} finalizado.`,
       );
     }
+  }
+
+  // --- Métodos con Callbacks ---
+
+  public onChaincodeEvent(
+    params: ChaincodeEventParams,
+    identity: AppIdentity,
+    callbacks: EventCallbacks<ChaincodeEventsResponse>,
+  ): () => void {
+    const abortController = new AbortController();
+
+    const generator = this.listenToChaincodeEvents(
+      params,
+      identity,
+      abortController.signal,
+    );
+
+    consumeAsyncGenerator(generator, callbacks, abortController.signal);
+
+    return () => {
+      if (!abortController.signal.aborted) {
+        abortController.abort();
+      }
+    };
+  }
+
+  public onBlockEvent(
+    params: BlockEventParams,
+    identity: AppIdentity,
+    callbacks: EventCallbacks<FilteredBlock>,
+  ): () => void {
+    const abortController = new AbortController();
+
+    const generator = this.listenToBlockEvents(
+      params,
+      identity,
+      abortController.signal,
+    );
+
+    consumeAsyncGenerator(generator, callbacks, abortController.signal);
+
+    return () => {
+      if (!abortController.signal.aborted) {
+        abortController.abort();
+      }
+    };
   }
 
   // --- Métodos Privados de Soporte ---
