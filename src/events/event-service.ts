@@ -104,7 +104,12 @@ export class EventService {
       });
 
       for await (const response of stream) {
-        if (signal.aborted) break;
+        // Validate response type and structure
+        if (!response || typeof response !== "object") {
+          console.warn("[EventService] Ignoring invalid chaincode event response.");
+          continue;
+        }
+        // Optionally, add more structure checks here if needed
         yield response;
       }
     } catch (error) {
@@ -158,18 +163,42 @@ export class EventService {
 
       while (!signal.aborted) {
         const message = await this.waitForSocketMessage(socket, signal);
-        const deliverResponse = fromBinary(
-          DeliverResponseSchema,
-          new Uint8Array(message.data),
-        );
 
-        if (deliverResponse.Type.case === "filteredBlock") {
-          yield deliverResponse.Type.value;
-        } else if (deliverResponse.Type.case === "status") {
-          console.warn(
-            "[EventService] Status message received from peer:",
-            deliverResponse.Type.value,
+        // Validate message type and size
+        if (
+          !message.data ||
+          !(message.data instanceof ArrayBuffer) ||
+          message.data.byteLength === 0 ||
+          message.data.byteLength > 10 * 1024 * 1024 // 10MB sanity limit
+        ) {
+          console.warn("[EventService] Ignoring invalid or oversized WebSocket message.");
+          continue;
+        }
+
+        let deliverResponse;
+        try {
+          deliverResponse = fromBinary(
+            DeliverResponseSchema,
+            new Uint8Array(message.data)
           );
+        } catch (err) {
+          console.warn("[EventService] Failed to parse WebSocket message:", err);
+          continue;
+        }
+
+        if (deliverResponse && typeof deliverResponse.Type === "object" && "case" in deliverResponse.Type) {
+          if (deliverResponse.Type.case === "filteredBlock") {
+            yield deliverResponse.Type.value;
+          } else if (deliverResponse.Type.case === "status") {
+            console.warn(
+              "[EventService] Status message received from peer:",
+              deliverResponse.Type.value,
+            );
+          } else {
+            console.warn("[EventService] Unknown message type received:", deliverResponse.Type.case);
+          }
+        } else {
+          console.warn("[EventService] Malformed deliverResponse received.");
         }
       }
     } catch (error) {

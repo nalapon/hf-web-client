@@ -58,11 +58,14 @@ export class PasswordBasedEngine implements ISecurityEngine {
             "Password is too weak. Please choose a stronger one.",
           );
         }
+        if (options.password.length < 8) {
+          throw new Error("The password must be at least 8 characters long.");
+        }
       }
 
       const salt = getRandomValues(new Uint8Array(16));
       const iv = getRandomValues(new Uint8Array(12));
-      const crypto = getSubtleCrypto(); 
+      const crypto = getSubtleCrypto();
       const keyMaterial = await this.deriveKeyMaterial(secretToUse, salt);
       const encryptionKey = await crypto.importKey(
         "raw",
@@ -80,7 +83,10 @@ export class PasswordBasedEngine implements ISecurityEngine {
       );
 
       // Guardar los datos de la identidad
-      if (typeof window === "undefined" && typeof (this.store as any).setMany === "function") {
+      if (
+        typeof window === "undefined" &&
+        typeof (this.store as any).setMany === "function"
+      ) {
         // Node.js: usa setMany para una sola escritura
         await (this.store as any).setMany({
           [DB_KEYS.ENCRYPTED_KEY]: encryptedKeyPem,
@@ -173,9 +179,7 @@ export class PasswordBasedEngine implements ISecurityEngine {
           this.store.del(DB_KEYS.IV),
         ]);
       }
-      console.log(
-        "Password-based identity successfully deleted from storage.",
-      );
+      console.log("Password-based identity successfully deleted from storage.");
     });
   }
 

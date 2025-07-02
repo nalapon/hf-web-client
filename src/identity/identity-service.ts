@@ -11,6 +11,7 @@ import {
   Result,
 } from "../models";
 import { CryptoEngine } from "./crypto-engine";
+import { tryCatch } from "../utils/try-catch";
 
 function uint8ArrayToBase64Url(array: Uint8Array): string {
   return btoa(String.fromCharCode.apply(null, Array.from(array)))
@@ -136,10 +137,13 @@ export class IdentityService {
       return {
         success: false,
         data: null,
-        error: new Error("Hardware identity is not supported in this environment."),
+        error: new Error(
+          "Hardware identity is not supported in this environment.",
+        ),
       };
     }
-    try {
+    return tryCatch(async () => {
+      console.log("REMEMBER: You should use a trusted browser.");
       const rpName = "Fabric Client App";
       const rpID = window.location.hostname;
       const registrationOptions = {
@@ -175,23 +179,16 @@ export class IdentityService {
       );
 
       if (!cryptoResult.success) {
-        return cryptoResult;
+        throw cryptoResult.error;
       }
 
       // Build the active identity from the successful result.
       const activeIdentity = this.buildActiveIdentity(cryptoResult.data.cert);
       return {
-        success: true,
-        data: { ...activeIdentity, ...cryptoResult.data },
-        error: null,
+        ...activeIdentity,
+        ...cryptoResult.data,
       };
-    } catch (error: any) {
-      return {
-        success: false,
-        data: null,
-        error: new Error(`WebAuthn registration failed: ${error.message}`),
-      };
-    }
+    }, (error) => `WebAuthn registration failed: ${error.message}`);
   }
 
   public async unlockIdentity(
@@ -222,10 +219,12 @@ export class IdentityService {
       return {
         success: false,
         data: null,
-        error: new Error("Hardware identity is not supported in this environment."),
+        error: new Error(
+          "Hardware identity is not supported in this environment.",
+        ),
       };
     }
-    try {
+    return tryCatch(async () => {
       const rpID = window.location.hostname;
 
       // Get the credential ID from the secure engine instead of local storage.
@@ -248,14 +247,8 @@ export class IdentityService {
       };
 
       await startAuthentication({ optionsJSON: authOptions });
-      return { success: true, data: true, error: null };
-    } catch (error: any) {
-      return {
-        success: false,
-        data: null,
-        error: new Error(`Biometric verification failed: ${error.message}`),
-      };
-    }
+      return true;
+    }, (error) => `Biometric verification failed: ${error.message}`);
   }
 
   public deleteIdentity(
