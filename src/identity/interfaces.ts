@@ -26,7 +26,7 @@ export const enum WorkerAction {
 }
 
 /**
- * Define la estructura del mensaje enviado desde el servicio al worker.
+ * Define the structure of the message sent from the service to the worker.
  */
 export interface WorkerRequest {
   action: WorkerAction;

@@ -65,15 +65,7 @@ export async function signFabricSignature(
   return rsToDer(lowSSignature);
 }
 
-/**
- * @deprecated Use signFabricSignature instead.
- */
-export async function signProposal(
-  proposalBytes: Uint8Array,
-  identity: AppIdentity,
-): Promise<Uint8Array> {
-  return signFabricSignature(proposalBytes, identity);
-}
+
 
 /**
  * @deprecated Use signFabricSignature instead.

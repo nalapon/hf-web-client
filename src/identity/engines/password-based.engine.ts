@@ -40,6 +40,11 @@ export class PasswordBasedEngine implements ISecurityEngine {
     });
   }
 
+  /**
+   * This method creates a new identity using a password.
+   * @param options The user's certificate and private key.
+   * @returns The created identity data.
+   */
   public async createIdentity(
     options: PasswordCreateOptions,
   ): Promise<Result<CreatedIdentityData>> {
@@ -57,7 +62,7 @@ export class PasswordBasedEngine implements ISecurityEngine {
 
       const salt = getRandomValues(new Uint8Array(16));
       const iv = getRandomValues(new Uint8Array(12));
-      const crypto = getSubtleCrypto();
+      const crypto = getSubtleCrypto(); 
       const keyMaterial = await this.deriveKeyMaterial(secretToUse, salt);
       const encryptionKey = await crypto.importKey(
         "raw",
@@ -109,6 +114,11 @@ export class PasswordBasedEngine implements ISecurityEngine {
     });
   }
 
+  /**
+   * This method unlocks an identity using a password.
+   * @param options The password to unlock the identity.
+   * @returns The unlocked identity data.
+   */
   public async unlockIdentity(
     options: PasswordUnlockOptions,
   ): Promise<Result<UnlockedIdentityData>> {
@@ -147,6 +157,10 @@ export class PasswordBasedEngine implements ISecurityEngine {
     });
   }
 
+  /**
+   * This method deletes an identity from the store.
+   * @returns A Result indicating success or failure.
+   */
   public async deleteIdentity(): Promise<Result<void>> {
     return tryCatch(async () => {
       if (this.store.clear) {
@@ -165,6 +179,12 @@ export class PasswordBasedEngine implements ISecurityEngine {
     });
   }
 
+  /**
+   * This method derives key material from a password and a salt.
+   * @param password The password to derive the key material from.
+   * @param salt The salt to use for the key derivation.
+   * @returns The derived key material.
+   */
   private async deriveKeyMaterial(
     password: string,
     salt: Uint8Array,

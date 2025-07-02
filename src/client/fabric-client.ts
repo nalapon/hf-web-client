@@ -27,7 +27,7 @@ import {
 } from "../protobuf/parser";
 import { create, toBinary } from "@bufbuild/protobuf";
 import { SignedProposalSchema } from "../generated_protos/peer/proposal_pb";
-import { signFabricSignature, signProposal } from "../crypto/signing";
+import { signFabricSignature } from "../crypto/signing";
 import {
   buildProposalPayload,
   generateTransactionId,
@@ -46,6 +46,9 @@ export class FabricClient {
   private readonly gatewayClient: Client<typeof Gateway>;
   private readonly eventService: EventService;
 
+  /**
+   * This constructor checks where it's running (`typeof window === "undefined"`) and picks the right tool for the job.
+   */
   constructor(config: FabricClientConfig) {
     const isNode = typeof window === "undefined";
 
@@ -66,13 +69,10 @@ export class FabricClient {
   }
 
   /**
-   * Submits a transaction and waits for it to be committed to the ledger.
-   * This method abstracts the entire transaction lifecycle (endorse, submit, commit)
-   * into a single, synchronous-like call.
-   *
-   * @param params The details of the transaction proposal.
-   * @param identity The client identity to sign the proposal.
-   * @returns A Result containing the transaction ID and the payload returned by the chaincode, or an error if the transaction fails at any stage.
+   * This is the method for when you just want to submit a transaction and be done with it.
+   * It wraps the entire Fabric transaction flow (Endorse -> Submit -> Wait for Commit) into a single call.
+   * You give it a proposal, and it gives you back the final result or an error.
+   * It's doing a lot of heavy lifting (see `prepareTransaction`, `submitSignedTransaction`, `_waitForCommit`) so you don't have to.
    */
   public async submitAndCommit(
     params: ProposalParams,
@@ -111,8 +111,8 @@ export class FabricClient {
   }
 
   /**
-   * Waits for a transaction to be committed by the gateway.
-   * @private
+   * This function polls the Gateway's `commitStatus` endpoint to see if our transaction made it into a block.
+   * If the transaction doesn't get a `VALID` status, this is where we throw the error that tells the user something went wrong on the ledger.
    */
   private async _waitForCommit(
     channelId: string,
@@ -147,12 +147,10 @@ export class FabricClient {
   }
 
   /**
-   * Evalúa una transacción de solo lectura. La propuesta se envía a un peer,
-   * pero no se envía al servicio de ordenamiento.
-   *
-   * @param params Los detalles de la propuesta de transacción.
-   * @param identity La identidad del cliente para firmar la propuesta.
-   * @returns Un Result con los datos de la transacción evaluada o un error.
+   * Use this for any read-only operation. If your chaincode function just queries the ledger and doesn't change anything,
+   * `evaluate` is your best friend. It sends the proposal to a peer for execution but skips the whole ordering and committing process.
+   * It's faster, more efficient, and doesn't clutter the blockchain with unnecessary transactions.
+   * Think of it as asking a question, not making a statement.
    */
   public async evaluateTransaction(
     params: ProposalParams,
@@ -170,7 +168,7 @@ export class FabricClient {
         nonce,
       );
 
-      const signature = await signProposal(proposalPayloadBytes, identity);
+      const signature = await signFabricSignature(proposalPayloadBytes, identity);
       const signedProposal = create(SignedProposalSchema, {
         proposalBytes: proposalPayloadBytes,
         signature,
@@ -195,19 +193,18 @@ export class FabricClient {
   }
 
   /**
-   * Prepara (endorsa) una transacción para su posterior envío al orderer.
-   * La propuesta se envía a los peers para su endoso según la política.
-   *
-   * @param params Los detalles de la propuesta de transacción.
-   * @param identity La identidad del cliente para firmar la propuesta.
-   * @returns Un Result con la transacción preparada (el envelope de la transacción) o un error.
+   * Q: What's the point of `prepareTransaction`? Why not just submit?
+   * A: This is the first, crucial step of the Fabric transaction flow: Endorsement.
+   *    This method sends the transaction proposal to the peers defined by the endorsement policy.
+   *    The peers run the chaincode, simulate the transaction, and send back a signed response (the "endorsement").
+   *    You'd use this if you want to inspect the peer responses or collect endorsements manually before sending the transaction to the orderer.
+   *    For most cases, `submitAndCommit` is easier, but this gives you more control.
    */
   public async prepareTransaction(
     params: ProposalParams,
     identity: AppIdentity,
   ): Promise<Result<PreparedTransaction>> {
     return tryCatch(async () => {
-      // 1. Generar ID, nonce y bytes del creador
       const { txId, nonce, creatorBytes } = await generateTransactionId(
         identity,
         params.mspId,
@@ -219,7 +216,7 @@ export class FabricClient {
         nonce,
       );
 
-      const signature = await signProposal(proposalPayloadBytes, identity);
+      const signature = await signFabricSignature(proposalPayloadBytes, identity);
       const signedProposal = create(SignedProposalSchema, {
         proposalBytes: proposalPayloadBytes,
         signature,
@@ -235,11 +232,10 @@ export class FabricClient {
 
       if (!endorseResponse.preparedTransaction?.payload) {
         throw new Error(
-          "La respuesta del Endorse no contenía una transacción preparada válida.",
+          "The Endorse response did not contain a valid prepared transaction.",
         );
       }
 
-      // 4. Devolver la transacción lista para ser firmada y enviada
       return {
         txId,
         transactionEnvelope: endorseResponse.preparedTransaction.payload,
@@ -248,30 +244,28 @@ export class FabricClient {
   }
 
   /**
-   * Envía una transacción previamente preparada y firmada al orderer para su commit en el ledger.
-   *
-   * @param params Los detalles de la transacción a enviar, incluyendo el envelope de `prepareTransaction`.
-   * @param identity La identidad del cliente para firmar el envelope final.
-   * @returns Un Result confirmando el envío exitoso o un error.
+   * Q: So I've `prepare`d a transaction. Now what?
+   * A: Now you `submit` it! This is the second major step in the flow.
+   *    This method takes the `transactionEnvelope` you got from `prepareTransaction`,
+   *    signs it one more time with the client's identity, and sends it to the Gateway.
+   *    The Gateway then forwards it to the Ordering Service, which will eventually put it in a block.
+   *    Note: This method returns as soon as the orderer accepts the transaction; it does NOT wait for it to be committed.
    */
   public async submitSignedTransaction(
     params: SubmitParams,
     identity: AppIdentity,
   ): Promise<Result<SubmittedTransaction>> {
     return tryCatch(async () => {
-      // 1. Firmar el payload del envelope (el resultado de prepareTransaction)
       const envelopeSignature = await signFabricSignature(
         params.preparedTransaction,
         identity,
       );
 
-      // 2. Construir el envelope final firmado por el cliente
       const clientSignedEnvelope = create(EnvelopeSchema, {
         payload: params.preparedTransaction,
         signature: envelopeSignature,
       });
 
-      // 3. Crear y enviar la petición de submit
       const submitRequest = create(SubmitRequestSchema, {
         channelId: params.channelName,
         transactionId: params.txId,
@@ -282,21 +276,22 @@ export class FabricClient {
 
       return {
         txId: params.txId,
-        status: "Transacción enviada con éxito al gateway.",
+        status: "Transaction successfully submitted to the gateway.",
       };
     }, getGroundedError);
   }
 
 
-  // --- Métodos de Eventos con Callbacks ---
+  // --- Event Methods ---
 
   /**
-   * Registers a listener for chaincode events, using a callback-based approach.
+   * Q: Why does this exist if we already have `listenToChaincodeEvents`?
+   * A: Because `for await...of` loops are cool, but sometimes you just want to say:
+   *    "Here's a function for the data, here's one for errors. Call them when you need to."
+   *    This method provides that classic, friendly callback pattern. It uses the `AsyncGenerator`
+   *    under the hood but gives you a simpler API to work with.
    *
-   * @param params The details of the channel and chaincode to listen to.
-   * @param identity The client identity for signing the event request.
-   * @param callbacks An object containing `onData`, `onError`, and optional `onClose` callbacks.
-   * @returns A function to unsubscribe and close the event stream.
+   * @returns A function that you can call to stop listening. The ultimate "unsubscribe" button.
    */
   public onChaincodeEvent(
     params: ChaincodeEventParams,
@@ -307,12 +302,11 @@ export class FabricClient {
   }
 
   /**
-   * Registers a listener for block events, using a callback-based approach.
+   * Q: Same question as above, but for block events.
+   * A: Exactly the same answer! This is the callback-friendly version of `listenToBlockEvents`.
+   *    It wraps the `AsyncGenerator` and gives you a simple `onData`/`onError` interface.
    *
-   * @param params The details of the channel and peer to listen to.
-   * @param identity The client identity for signing the deliver request.
-   * @param callbacks An object containing `onData`, `onError`, and optional `onClose` callbacks.
-   * @returns A function to unsubscribe and close the event stream.
+   * @returns An "unsubscribe" function. Click it to make the data stop.
    */
   public onBlockEvent(
     params: BlockEventParams,
@@ -322,3 +316,4 @@ export class FabricClient {
     return this.eventService.onBlockEvent(params, identity, callbacks);
   }
 }
+
