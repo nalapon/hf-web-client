@@ -1,3 +1,10 @@
+export interface ExportedIdentity {
+  label: string;
+  mspId: string;
+  certificate: string;
+  privateKey: string;
+}
+
 /** The raw, unlocked materials produced by a security engine. INTERNAL USE ONLY. */
 export interface UnlockedIdentityData {
   key: CryptoKey;

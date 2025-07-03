@@ -17,8 +17,8 @@ import type {
 import { tryCatch } from "../../utils/try-catch";
 import { getSubtleCrypto, getRandomValues } from "../../crypto/crypto-provider";
 import type { IKeyValueStore } from "../storage/ikeystore";
-import { isomorphicBtoa } from "../../utils/isomorphic-helpers";
-
+import { isomorphicBtoa, isomorphicAtob } from "../../utils/isomorphic-helpers";
+import { zeroUint8Array } from "../../utils/utils";
 const DB_KEYS = {
   ENCRYPTED_KEY: "pbe-fabric-encrypted-private-key",
   CERTIFICATE: "pbe-fabric-user-certificate",
@@ -211,5 +211,58 @@ export class PasswordBasedEngine implements ISecurityEngine {
       baseKey,
       256,
     );
+  }
+
+  public async encryptData(data: string, password:string): Promise<Result<string>> {
+    return tryCatch(async () => {
+      const salt = getRandomValues(new Uint8Array(16));
+      const iv = getRandomValues(new Uint8Array(12));
+      const crypto = getSubtleCrypto();
+      const keyMaterial = await this.deriveKeyMaterial(password, salt);
+      const encryptionKey = await crypto.importKey(
+        "raw",
+        keyMaterial,
+        "AES-GCM",
+        false,
+        ["encrypt"],
+      );
+      const encoded = new TextEncoder().encode(data);
+      const cipherText = await crypto.encrypt(
+        { name: "AES-GCM", iv },
+        encryptionKey,
+        encoded,
+      );
+      const bundle = {
+        salt : Array.from(salt),
+        iv: Array.from(iv),
+        cipherText: Array.from(new Uint8Array(cipherText)),
+      }
+      const bundleBase64 = isomorphicBtoa(JSON.stringify(bundle));
+      return bundleBase64;
+    })
+  }
+
+  public async decryptData(data: string, password: string): Promise<Result<string>> {
+    return tryCatch(async () => {
+      const bundle = JSON.parse(isomorphicAtob(data));
+      const salt = new Uint8Array(bundle.salt);
+      const iv = new Uint8Array(bundle.iv);
+      const cipherText = new Uint8Array(bundle.cipherText);
+      const crypto = getSubtleCrypto();
+      const keyMaterial = await this.deriveKeyMaterial(password, salt);
+      const decryptionKey = await crypto.importKey(
+        "raw",
+        keyMaterial,
+        "AES-GCM",
+        true,
+        ["decrypt"],
+      );
+      const decryptedData = await crypto.decrypt(
+        { name: "AES-GCM", iv },
+        decryptionKey,
+        cipherText,
+      );
+      return new TextDecoder().decode(decryptedData);
+    })
   }
 }

@@ -10,4 +10,11 @@ export function isomorphicBtoa(str: string): string {
     return Buffer.from(str, "binary").toString("base64");
   }
   return btoa(str);
+}
+
+export function isomorphicAtob(str: string): string {
+  if (typeof window !== "undefined" && window.atob) {
+    return window.atob(str);
+  }
+  return Buffer.from(str, "base64").toString("binary");
 } 

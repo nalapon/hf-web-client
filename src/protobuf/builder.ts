@@ -1,5 +1,5 @@
 import { create, toBinary, protoInt64 } from "@bufbuild/protobuf";
-import { sha256 } from "@noble/hashes/sha256";
+import { sha256 } from "@noble/hashes/sha2";
 
 import type { AppIdentity, ProposalParams } from "../models";
 
@@ -63,7 +63,7 @@ export function createSerializedIdentityBytes(
  * Q: What's the deal with generating a transaction ID? Can't I just use a UUID?
  * A: You could, but you'd miss out on some of Fabric's built-in security features.
  *    A Fabric transaction ID is traditionally a hash of the creator's identity combined with a random "nonce" (a number used once).
- *    This does two things: 
+ *    This does two things:
  *    1. It guarantees the transaction ID is unique.
  *    2. It cryptographically links the transaction ID to the user who created it.
  *    This function follows that best practice, giving you a secure and standard `txId`.

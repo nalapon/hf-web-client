@@ -10,9 +10,9 @@ import * as path from "path";
 
 // Test configuration
 const GATEWAY_URL = "http://localhost:8088";
-const CHANNEL_NAME = "mychannel";
-const CHAINCODE_NAME = "basic";
 const MSP_ID = "Org1MSP";
+const CHANNEL_NAME = "mychannel";
+const CHAINCODE_NAME = "asset-transfer-basic";
 
 // Paths to crypto material
 const CRYPTO_BASE_PATH = path.resolve(
@@ -56,12 +56,13 @@ describe("FabricClient Integration Tests", () => {
     });
 
     // --- 2. Load crypto material ---
+ 
     const certPem = fs.readFileSync(ADMIN_CERT_PATH, "utf8");
     const adminKeyPath = findPrivateKeyFile(ADMIN_KEYSTORE_PATH);
     const keyFileContent = fs.readFileSync(adminKeyPath, "utf8");
 
     // --- 3. Use IdentityService for onboarding ---
-    const identityService = new IdentityService();
+    const identityService = new IdentityService(MSP_ID);
     const password = "integration-test-password";
     const createResult = await identityService.createPasswordIdentity({
       certPem,
