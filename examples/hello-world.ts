@@ -43,7 +43,7 @@ async function main() {
   const keyPem = `-----BEGIN PRIVATE KEY-----\n${keyFileContent}\n-----END PRIVATE KEY-----`;
 
   // 2. Create an identity service and unlock an identity
-  const identityService = new IdentityService();
+  const identityService = new IdentityService(MSP_ID);
   const password = "password123"; // In a real app, get this from the user
 
   const createResult = await identityService.createPasswordIdentity({
@@ -88,6 +88,41 @@ async function main() {
 
   console.log("--- Example Complete ---");
 }
+
+// --- Example: Export and Import Identity ---
+
+async function exampleExportImportIdentity() {
+  const mspId = "TestMSP";
+  const password = "test-password";
+  const label = "Test Identity";
+
+  // Create a test instance (in real usage, unlock or create an identity first)
+  const service = new IdentityService(mspId);
+
+  // Mock: Patch service to simulate an unlocked identity and password engine
+  (service as any).getUnlockedIdentity = async () => ({
+    key: {} as CryptoKey,
+    cert: "mock-cert",
+  });
+  (service as any).getPrivateKeyPem = async () => "mock-private-key-pem";
+  (service as any).passwordEngine = {
+    encryptData: async (data: string, _pw: string) => ({ success: true, data: Buffer.from(data).toString("base64") }),
+    decryptData: async (data: string, _pw: string) => ({ success: true, data: Buffer.from(data, "base64").toString("utf8") }),
+  };
+  (service as any).createPasswordIdentity = async () => ({ success: true, data: {}, error: null });
+
+  // Export identity
+  const exportResult = await service.exportIdentity(label, password);
+  console.log("Exported Identity:", exportResult);
+
+  // Import identity
+  if (exportResult.success) {
+    const importResult = await service.importExportedIdentity(exportResult.data, password);
+    console.log("Import Result:", importResult);
+  }
+}
+
+exampleExportImportIdentity().catch(console.error);
 
 main().catch((error) => {
   console.error("An error occurred:", error);

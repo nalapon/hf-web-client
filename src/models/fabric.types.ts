@@ -1,3 +1,7 @@
+import type { ChaincodeEventsResponse } from "../generated_protos/gateway/gateway_pb";
+
+import type { FilteredBlock } from "../generated_protos/peer/events_pb";
+
 export interface FabricClientConfig {
   gatewayUrl: string;
   wsUrl?: string;
@@ -39,9 +43,7 @@ export interface SubmittedTransaction {
   readonly status: string;
 }
 
-import type { ChaincodeEventsResponse } from "../generated_protos/gateway/gateway_pb";
 
-import type { FilteredBlock } from "../generated_protos/peer/events_pb";
 
 export interface EventService {
   mspId: string;

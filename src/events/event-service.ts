@@ -12,16 +12,51 @@ import {
   AppIdentity,
   BlockEventParams,
   ChaincodeEventParams,
+  EventCallbacks,
   FabricClientConfig,
   FilteredBlock,
 } from "../models";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { EnvelopeSchema } from "../generated_protos/common/common_pb";
-import { signProposal } from "../crypto/signing";
+import { signFabricSignature } from "../crypto/signing";
 import { createSignedDeliverRequest } from "../protobuf/deliver-builder";
 import { createSerializedIdentityBytes } from "../protobuf";
 
-// --- Isomorphic WebSocket Helper ---
+/**
+ * Q: So, what's the deal with this `consumeAsyncGenerator` function?
+ * A: Think of it as a universal adapter. We have these cool, modern `AsyncGenerator` things that spit out data whenever they feel like it.
+ *    But lots of people just want a simple, old-school callback (`onData`, `onError`). This function is the bridge.
+ *    It takes a generator, runs it in the background, and calls the right callback at the right time.
+ *    It's the unsung hero that makes our new `onChaincodeEvent` and `onBlockEvent` methods possible.
+ */
+async function consumeAsyncGenerator<T>(
+  generator: AsyncGenerator<T>,
+  callbacks: EventCallbacks<T>,
+  signal: AbortSignal,
+): Promise<void> {
+  try {
+    for await (const data of generator) {
+      if (signal.aborted) break;
+      callbacks.onData(data);
+    }
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+    } else {
+      callbacks.onError(error as Error);
+    }
+  } finally {
+    if (callbacks.onClose) {
+      callbacks.onClose();
+    }
+  }
+}
+
+/**
+ * Q: What's this `getWebSocketClass` thing?
+ * A: In a browser, the WebSocket class is just there, living on the `window` object.
+ *    But in Node.js, it doesn't exist. We have to import it from the 'ws' library.
+ *    This function is a neat little trick to dynamically grab the right WebSocket implementation depending on where the code is running.
+ */
 async function getWebSocketClass() {
   if (typeof window === "undefined") {
     const wsModule = await import("ws");
@@ -47,13 +82,11 @@ export class EventService {
   }
 
   /**
-   * Establece una conexión para escuchar eventos emitidos por un chaincode específico.
-   * Devuelve un Generador Asíncrono que produce respuestas a medida que llegan.
-   *
-   * @param params Los detalles del canal y chaincode a escuchar.
-   * @param identity La identidad del cliente para firmar la petición de eventos.
-   * @param signal Un AbortSignal para cancelar la suscripción y cerrar el stream.
-   * @yields {ChaincodeEventsResponse} Un objeto de respuesta por cada bloque que contenga eventos.
+   * Q: What is this function doing? And why is it an `async *` thing?
+   * A: This is our chaincode event listener. The `async *` syntax creates an AsyncGenerator,
+   *    which is a fancy way of saying "a stream of data that you can loop over as it arrives".
+   *    It connects to the Fabric Gateway and says, "tell me every time chaincode 'X' does something interesting."
+   *    For a simpler, callback-based version, see `onChaincodeEvent`.
    */
   public async *listenToChaincodeEvents(
     params: ChaincodeEventParams,
@@ -70,12 +103,13 @@ export class EventService {
         signal,
       });
 
-      console.log(
-        `[EventService] Escuchando eventos para ${params.chaincodeName} en ${params.channelName}...`,
-      );
-
       for await (const response of stream) {
-        if (signal.aborted) break;
+        // Validate response type and structure
+        if (!response || typeof response !== "object") {
+          console.warn("[EventService] Ignoring invalid chaincode event response.");
+          continue;
+        }
+        // Optionally, add more structure checks here if needed
         yield response;
       }
     } catch (error) {
@@ -83,31 +117,26 @@ export class EventService {
         signal.aborted ||
         (error instanceof Error && error.name === "AbortError")
       ) {
-        console.log(
-          "[EventService] Stream de eventos de chaincode cancelado por el cliente.",
-        );
+        // This is expected on cancellation, so we don't log an error.
       } else {
         console.error(
-          "[EventService] Error en el stream de eventos de chaincode:",
+          `[EventService] Error in chaincode event stream for ${params.chaincodeName}:`,
           error,
         );
-        throw error; // Propaga el error si no es una cancelación
+        throw error;
       }
     } finally {
-      console.log(
-        `[EventService] Stream para ${params.chaincodeName} finalizado.`,
-      );
+      // The stream is done, either by cancellation, error, or natural completion.
     }
   }
 
   /**
-   * Establece una conexión WebSocket para escuchar eventos de bloque filtrados de un canal.
-   * Devuelve un Generador Asíncrono que produce bloques a medida que son commiteados.
-   *
-   * @param params Los detalles del canal y peer a escuchar.
-   * @param identity La identidad del cliente para firmar la petición de deliver.
-   * @param signal Un AbortSignal para cancelar la suscripción y cerrar el WebSocket.
-   * @yields {FilteredBlock} Un bloque filtrado cada vez que se commitea uno nuevo.
+   * Q: Another `async *` generator? What's different about this one?
+   * A: This one is for block events. Instead of talking to the Gateway's gRPC-Web endpoint,
+   *    it opens a direct WebSocket connection to a peer's "deliver" service.
+   *    The deliver service is the original, canonical way to get blocks from a peer.
+   *    This gives us a raw, unfiltered stream of every block as it's committed to the ledger.
+   *    It's lower-level and more direct than the Gateway's chaincode event stream.
    */
   public async *listenToBlockEvents(
     params: BlockEventParams,
@@ -131,24 +160,45 @@ export class EventService {
     try {
       await this.waitForSocketOpen(socket, signal);
       socket.send(requestBytes);
-      console.log(
-        `[EventService] Escuchando eventos de bloque en el canal ${params.channelName}...`,
-      );
 
       while (!signal.aborted) {
         const message = await this.waitForSocketMessage(socket, signal);
-        const deliverResponse = fromBinary(
-          DeliverResponseSchema,
-          new Uint8Array(message.data),
-        );
 
-        if (deliverResponse.Type.case === "filteredBlock") {
-          yield deliverResponse.Type.value;
-        } else if (deliverResponse.Type.case === "status") {
-          console.warn(
-            "[EventService] Mensaje de estado recibido del peer:",
-            deliverResponse.Type.value,
+        // Validate message type and size
+        if (
+          !message.data ||
+          !(message.data instanceof ArrayBuffer) ||
+          message.data.byteLength === 0 ||
+          message.data.byteLength > 10 * 1024 * 1024 // 10MB sanity limit
+        ) {
+          console.warn("[EventService] Ignoring invalid or oversized WebSocket message.");
+          continue;
+        }
+
+        let deliverResponse;
+        try {
+          deliverResponse = fromBinary(
+            DeliverResponseSchema,
+            new Uint8Array(message.data)
           );
+        } catch (err) {
+          console.warn("[EventService] Failed to parse WebSocket message:", err);
+          continue;
+        }
+
+        if (deliverResponse && typeof deliverResponse.Type === "object" && "case" in deliverResponse.Type) {
+          if (deliverResponse.Type.case === "filteredBlock") {
+            yield deliverResponse.Type.value;
+          } else if (deliverResponse.Type.case === "status") {
+            console.warn(
+              "[EventService] Status message received from peer:",
+              deliverResponse.Type.value,
+            );
+          } else {
+            console.warn("[EventService] Unknown message type received:", deliverResponse.Type.case);
+          }
+        } else {
+          console.warn("[EventService] Malformed deliverResponse received.");
         }
       }
     } catch (error) {
@@ -156,12 +206,10 @@ export class EventService {
         signal.aborted ||
         (error instanceof Error && error.name === "AbortError")
       ) {
-        console.log(
-          "[EventService] Stream de eventos de bloque cancelado por el cliente.",
-        );
+        // Expected on cancellation.
       } else {
         console.error(
-          "[EventService] Error en el stream de eventos de bloque:",
+          `[EventService] Error in block event stream for ${params.channelName}:`,
           error,
         );
         throw error;
@@ -173,13 +221,70 @@ export class EventService {
       ) {
         socket.close(1000, "Stream finished by client");
       }
-      console.log(
-        `[EventService] Stream de bloques para ${params.channelName} finalizado.`,
-      );
     }
   }
 
-  // --- Métodos Privados de Soporte ---
+  // --- Callback-based Methods ---
+
+  /**
+   * Q: Why does this exist if we already have `listenToChaincodeEvents`?
+   * A: Because `for await...of` loops are cool, but sometimes you just want to say:
+   *    "Here's a function for the data, here's one for errors. Call them when you need to."
+   *    This method provides that classic, friendly callback pattern.
+   *
+   * @returns A function that you can call to stop listening. The ultimate "unsubscribe" button.
+   */
+  public onChaincodeEvent(
+    params: ChaincodeEventParams,
+    identity: AppIdentity,
+    callbacks: EventCallbacks<ChaincodeEventsResponse>,
+  ): () => void {
+    const abortController = new AbortController();
+
+    const generator = this.listenToChaincodeEvents(
+      params,
+      identity,
+      abortController.signal,
+    );
+
+    consumeAsyncGenerator(generator, callbacks, abortController.signal);
+
+    return () => {
+      if (!abortController.signal.aborted) {
+        abortController.abort();
+      }
+    };
+  }
+
+  /**
+   * Q: Same question as above, but for block events.
+   * A: Exactly the same answer! This is the callback-friendly version of `listenToBlockEvents`.
+   *
+   * @returns An "unsubscribe" function. Click it to make the data stop.
+   */
+  public onBlockEvent(
+    params: BlockEventParams,
+    identity: AppIdentity,
+    callbacks: EventCallbacks<FilteredBlock>,
+  ): () => void {
+    const abortController = new AbortController();
+
+    const generator = this.listenToBlockEvents(
+      params,
+      identity,
+      abortController.signal,
+    );
+
+    consumeAsyncGenerator(generator, callbacks, abortController.signal);
+
+    return () => {
+      if (!abortController.signal.aborted) {
+        abortController.abort();
+      }
+    };
+  }
+
+  // --- Private Support Methods ---
 
   private async createSignedChaincodeEventsRequest(
     params: ChaincodeEventParams,
@@ -197,8 +302,8 @@ export class EventService {
     });
 
     const requestBytes = toBinary(ChaincodeEventsRequestSchema, eventsRequest);
-    // Para una petición de eventos, la firma es sobre los bytes de la petición misma.
-    const signature = await signProposal(requestBytes, identity);
+
+    const signature = await signFabricSignature(requestBytes, identity);
 
     return create(SignedChaincodeEventsRequestSchema, {
       request: requestBytes,
@@ -224,7 +329,7 @@ export class EventService {
       });
       socket.onerror = () => {
         signal.removeEventListener("abort", abortHandler);
-        reject(new Error("Fallo al establecer la conexión WebSocket."));
+        reject(new Error("Failed to establish WebSocket connection."));
       };
     });
   }
@@ -246,13 +351,13 @@ export class EventService {
         signal.removeEventListener("abort", abortHandler);
         reject(
           new Error(
-            `WebSocket cerrado inesperadamente: ${event.code} ${event.reason}`,
+            `WebSocket closed unexpectedly: ${event.code} ${event.reason}`,
           ),
         );
       };
       socket.onerror = () => {
         signal.removeEventListener("abort", abortHandler);
-        reject(new Error("Error en la conexión WebSocket."));
+        reject(new Error("Error in WebSocket connection."));
       };
     });
   }

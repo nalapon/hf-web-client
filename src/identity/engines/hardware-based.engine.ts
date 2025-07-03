@@ -37,14 +37,16 @@ export class HardwareBasedEngine implements ISecurityEngine {
     options: { certPem: string; keyPem: string },
     webAuthnCredentialId: string,
   ): Promise<Result<CreatedIdentityData>> {
-    // We pass no password, so the underlying engine will create a strong mnemonic.
-    const createResult = await this.passwordEngine.createIdentity(options);
-
-    // After successful creation, also store the WebAuthn credential ID.
-    if (createResult.success) {
+    return tryCatch(async () => {
+      // We pass no password, so the underlying engine will create a strong mnemonic.
+      const createResult = await this.passwordEngine.createIdentity(options);
+      if (!createResult.success) {
+        throw createResult.error;
+      }
+      // After successful creation, also store the WebAuthn credential ID.
       await this.store.set(WEBAUTHN_CREDENTIAL_ID_KEY, webAuthnCredentialId);
-    }
-    return createResult;
+      return createResult.data;
+    });
   }
 
   /**
@@ -88,15 +90,11 @@ export class HardwareBasedEngine implements ISecurityEngine {
   public async deleteIdentity(): Promise<Result<void>> {
     return tryCatch(async () => {
       await this.store.del(WEBAUTHN_CREDENTIAL_ID_KEY);
-
       const deleteResult = await this.passwordEngine.deleteIdentity();
       if (!deleteResult.success) {
         throw deleteResult.error;
       }
-
-      console.log(
-        "Hardware-based identity and associated data successfully deleted.",
-      );
+      // Optionally log success
     });
   }
 }

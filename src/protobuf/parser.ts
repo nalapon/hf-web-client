@@ -5,7 +5,7 @@ import type { EvaluateResponse } from "../generated_protos/gateway/gateway_pb";
 import type { Response as PeerResponse } from "../generated_protos/peer/proposal_response_pb";
 
 /**
- * Parsea el payload de un chaincode (que suele ser un string o JSON) a un formato útil.
+ * Parses the payload of a chaincode (which is usually a string or JSON) to a useful format.
  */
 export function decodeChaincodePayload(
   payloadBytes: Uint8Array | undefined,
@@ -18,13 +18,13 @@ export function decodeChaincodePayload(
       payloadBytes,
     );
     try {
-      // Intenta parsear como JSON, si falla, devuelve el string.
+      // Try to parse as JSON, if it fails, return the string.
       return JSON.parse(decodedString);
     } catch {
       return decodedString;
     }
   } catch {
-    // Si no es un string UTF-8 válido, devuelve una representación hexadecimal.
+    // If it's not a valid UTF-8 string, return a hexadecimal representation.
     const hex = Array.from(payloadBytes)
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
@@ -33,7 +33,7 @@ export function decodeChaincodePayload(
 }
 
 /**
- * Parsea la respuesta de una llamada `evaluate` del gateway.
+ * Parses the response of a `evaluate` call from the gateway.
  */
 export function parseEvaluateResponse(
   response: EvaluateResponse | undefined,
@@ -41,7 +41,7 @@ export function parseEvaluateResponse(
   return tryCatchSync(() => {
     if (!response || !response.result) {
       throw new Error(
-        "La respuesta de evaluate o su campo 'result' están ausentes.",
+        "The response of evaluate or its 'result' field is missing.",
       );
     }
 

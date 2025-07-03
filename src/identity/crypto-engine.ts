@@ -8,12 +8,11 @@ import { FileStore } from "./storage/filestore";
 import type { IKeyValueStore } from "./storage/ikeystore";
 
 // --- Type and Interface Imports ---
-import { WorkerAction, type ISecurityEngine } from "./interfaces";
-import type { AppIdentity, Result } from "../models";
+import { WorkerAction } from "./interfaces";
+import type { Result } from "../models";
 import * as jose from "jose";
 import { getSubtleCrypto } from "../crypto/crypto-provider";
 import * as path from "path";
-import * as os from "os";
 
 const isNode = typeof window === "undefined";
 
@@ -23,7 +22,6 @@ const isNode = typeof window === "undefined";
  */
 export class CryptoEngine {
   private unlockedKey: CryptoKey | null = null;
-  private unlockedIdentity: AppIdentity | null = null;
 
   // We instantiate the engines and their storage dependencies.
   private readonly passwordEngine: PasswordBasedEngine;
@@ -89,7 +87,6 @@ export class CryptoEngine {
 
           if (result.success) {
             this.unlockedKey = result.data.key;
-            this.unlockedIdentity = result.data;
           }
           break;
 
@@ -106,17 +103,14 @@ export class CryptoEngine {
           result = await engine.unlockIdentity(payload);
           if (result.success) {
             this.unlockedKey = result.data.key;
-            this.unlockedIdentity = result.data;
           } else {
             this.unlockedKey = null;
-            this.unlockedIdentity = null;
           }
           break;
 
         case WorkerAction.DeleteIdentity:
           result = await engine.deleteIdentity();
           this.unlockedKey = null;
-          this.unlockedIdentity = null;
           break;
 
         case WorkerAction.SignPayload:
@@ -161,4 +155,4 @@ export class CryptoEngine {
       };
     }
   }
-} 
+}

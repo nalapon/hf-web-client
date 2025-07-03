@@ -33,6 +33,8 @@ function reviver(_key: string, value: any) {
 
 /**
  * An implementation of IKeyValueStore that uses a local JSON file as a backend.
+ * WARNING: This storage is NOT secure and should only be used for development or testing.
+ * For production, use a secure key management solution (e.g., OS keychain, encrypted store).
  * This is the default storage provider for Node.js environments.
  */
 export class FileStore implements IKeyValueStore {
@@ -42,6 +44,9 @@ export class FileStore implements IKeyValueStore {
 
   constructor(filePath: string) {
     this.filePath = filePath;
+    console.warn(
+      "[FileStore] WARNING: This storage is NOT secure and should only be used for development or testing. For production, use a secure key management solution."
+    );
   }
 
   public async load(): Promise<void> {
@@ -56,9 +61,15 @@ export class FileStore implements IKeyValueStore {
         this.inMemoryCache = new Map(Object.entries(parsed));
       } catch (e) {
         // If not valid JSON, reset the file and cache
-        await fs.writeFile(this.filePath, "", "utf-8");
+        await fs.writeFile(this.filePath, "", {
+          mode: 0o600,
+          encoding: "utf-8",
+        });
+        await fs.chmod(this.filePath, 0o600);
         this.inMemoryCache = new Map();
-        console.warn(`[FileStore] Corrupted identity file detected and reset: ${this.filePath}`);
+        console.warn(
+          `[FileStore] Corrupted identity file detected and reset: ${this.filePath}`,
+        );
       }
     } catch (error: any) {
       // If the file doesn't exist, that's fine. We'll create it on the first `set`.
@@ -76,16 +87,11 @@ export class FileStore implements IKeyValueStore {
         : "";
 
     const dir = path.dirname(this.filePath);
-    console.log(`[FileStore] Attempting to create directory: ${dir}`);
     await fs.mkdir(dir, { recursive: true });
-    console.log(`[FileStore] Directory created or already exists: ${dir}`);
-
     const tempPath = this.filePath + ".tmp";
-    console.log(`[FileStore] Writing to temporary file: ${tempPath}`);
-    await fs.writeFile(tempPath, data, "utf-8");
-    console.log(`[FileStore] Renaming ${tempPath} to ${this.filePath}`);
+    await fs.writeFile(tempPath, data, { mode: 0o600, encoding: "utf-8" });
+    await fs.chmod(tempPath, 0o600);
     await fs.rename(tempPath, this.filePath);
-    console.log(`[FileStore] Save successful to: ${this.filePath}`);
   }
 
   public async get<T>(key: string): Promise<T | undefined> {
@@ -122,4 +128,4 @@ export class FileStore implements IKeyValueStore {
     }
     await this.save();
   }
-} 
+}

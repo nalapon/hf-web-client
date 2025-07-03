@@ -11,6 +11,8 @@ import {
   Result,
 } from "../models";
 import { CryptoEngine } from "./crypto-engine";
+import { tryCatch } from "../utils/try-catch";
+import type { ExportedIdentity } from "./interfaces";
 
 function uint8ArrayToBase64Url(array: Uint8Array): string {
   return btoa(String.fromCharCode.apply(null, Array.from(array)))
@@ -19,19 +21,30 @@ function uint8ArrayToBase64Url(array: Uint8Array): string {
     .replace(/=+$/, "");
 }
 
-const isNode = typeof window === "undefined";
+const isNode = typeof process !== "undefined" && process.versions != null && process.versions.node != null;
 
 export class IdentityService {
   private worker: Worker | null = null;
   private engine: CryptoEngine | null = null;
+  private passwordEngine: any; // PasswordBasedEngine, but avoid import cycle
+  private mspId: string;
 
-  constructor() {
+  constructor(mspId: string) {
+    this.mspId = mspId;
     if (isNode) {
       this.engine = new CryptoEngine();
-    } else {
+      // @ts-ignore: Access the passwordEngine from CryptoEngine
+      this.passwordEngine = (this.engine as any).passwordEngine;
+    } else if (typeof Worker !== "undefined") {
       this.worker = new Worker(new URL("./crypto-worker.js", import.meta.url), {
         type: "module",
       });
+      this.passwordEngine = undefined;
+    } else {
+      // Fallback for environments where neither Node nor Worker is available
+      this.engine = null;
+      this.worker = null;
+      this.passwordEngine = undefined;
     }
   }
 
@@ -136,10 +149,13 @@ export class IdentityService {
       return {
         success: false,
         data: null,
-        error: new Error("Hardware identity is not supported in this environment."),
+        error: new Error(
+          "Hardware identity is not supported in this environment.",
+        ),
       };
     }
-    try {
+    return tryCatch(async () => {
+      console.log("REMEMBER: You should use a trusted browser.");
       const rpName = "Fabric Client App";
       const rpID = window.location.hostname;
       const registrationOptions = {
@@ -175,23 +191,16 @@ export class IdentityService {
       );
 
       if (!cryptoResult.success) {
-        return cryptoResult;
+        throw cryptoResult.error;
       }
 
       // Build the active identity from the successful result.
       const activeIdentity = this.buildActiveIdentity(cryptoResult.data.cert);
       return {
-        success: true,
-        data: { ...activeIdentity, ...cryptoResult.data },
-        error: null,
+        ...activeIdentity,
+        ...cryptoResult.data,
       };
-    } catch (error: any) {
-      return {
-        success: false,
-        data: null,
-        error: new Error(`WebAuthn registration failed: ${error.message}`),
-      };
-    }
+    }, (error) => `WebAuthn registration failed: ${error.message}`);
   }
 
   public async unlockIdentity(
@@ -222,10 +231,12 @@ export class IdentityService {
       return {
         success: false,
         data: null,
-        error: new Error("Hardware identity is not supported in this environment."),
+        error: new Error(
+          "Hardware identity is not supported in this environment.",
+        ),
       };
     }
-    try {
+    return tryCatch(async () => {
       const rpID = window.location.hostname;
 
       // Get the credential ID from the secure engine instead of local storage.
@@ -248,19 +259,74 @@ export class IdentityService {
       };
 
       await startAuthentication({ optionsJSON: authOptions });
-      return { success: true, data: true, error: null };
-    } catch (error: any) {
-      return {
-        success: false,
-        data: null,
-        error: new Error(`Biometric verification failed: ${error.message}`),
-      };
-    }
+      return true;
+    }, (error) => `Biometric verification failed: ${error.message}`);
   }
 
   public deleteIdentity(
     mode: "password-based" | "hardware-based",
   ): Promise<Result<void>> {
     return this.request<void>(WorkerAction.DeleteIdentity, null, mode);
+  }
+
+  /**
+   * Stub: Retrieve the currently unlocked identity (key and cert).
+   * TODO: Implement actual logic to retrieve the unlocked identity from memory/session.
+   */
+  private async getUnlockedIdentity(): Promise<{ key: CryptoKey, cert: string } | null> {
+    throw new Error("getUnlockedIdentity is not implemented. Implement this to return the unlocked identity.");
+  }
+
+  /**
+   * Stub: Export a CryptoKey to PEM format.
+   * TODO: Implement actual logic to export CryptoKey to PEM.
+   */
+  private async getPrivateKeyPem(key: CryptoKey): Promise<string> {
+    throw new Error("getPrivateKeyPem is not implemented. Implement this to export a CryptoKey to PEM format.");
+  }
+
+  /**
+   * Export the currently unlocked identity as an encrypted, base64-encoded string.
+   */
+  public async exportIdentity(label: string, password: string): Promise<Result<string>> {
+    return tryCatch(async () => {
+      const unlocked = await this.getUnlockedIdentity();
+      if (!unlocked) throw new Error("No unlocked identity to export.");
+      const privateKeyPem = await this.getPrivateKeyPem(unlocked.key);
+      const exported: ExportedIdentity = {
+        label,
+        mspId: this.mspId,
+        certificate: unlocked.cert,
+        privateKey: privateKeyPem,
+      };
+      const json = JSON.stringify(exported);
+      if (!this.passwordEngine) throw new Error("Password engine not available in this environment.");
+      const encryptedResult = await this.passwordEngine.encryptData(json, password);
+      if (!encryptedResult.success) throw encryptedResult.error;
+      return encryptedResult.data;
+    });
+  }
+
+  /**
+   * Import an identity from an encrypted, base64-encoded string.
+   */
+  public async importExportedIdentity(encrypted: string, password: string): Promise<Result<void>> {
+    return tryCatch(async () => {
+      if (!this.passwordEngine) throw new Error("Password engine not available in this environment.");
+      const decryptedResult = await this.passwordEngine.decryptData(encrypted, password);
+      if (!decryptedResult.success) throw decryptedResult.error;
+      const obj: ExportedIdentity = JSON.parse(decryptedResult.data);
+      // Validate structure
+      if (!obj.certificate || !obj.privateKey || !obj.mspId) {
+        throw new Error("Invalid identity data.");
+      }
+      // Store using your existing createPasswordIdentity logic
+      const createResult = await this.createPasswordIdentity({
+        certPem: obj.certificate,
+        keyPem: obj.privateKey,
+        password,
+      });
+      if (!createResult.success) throw createResult.error;
+    });
   }
 }

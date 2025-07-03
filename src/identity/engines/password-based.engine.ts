@@ -17,8 +17,8 @@ import type {
 import { tryCatch } from "../../utils/try-catch";
 import { getSubtleCrypto, getRandomValues } from "../../crypto/crypto-provider";
 import type { IKeyValueStore } from "../storage/ikeystore";
-import { isomorphicBtoa } from "../../utils/isomorphic-helpers";
-
+import { isomorphicBtoa, isomorphicAtob } from "../../utils/isomorphic-helpers";
+import { zeroUint8Array } from "../../utils/utils";
 const DB_KEYS = {
   ENCRYPTED_KEY: "pbe-fabric-encrypted-private-key",
   CERTIFICATE: "pbe-fabric-user-certificate",
@@ -40,6 +40,11 @@ export class PasswordBasedEngine implements ISecurityEngine {
     });
   }
 
+  /**
+   * This method creates a new identity using a password.
+   * @param options The user's certificate and private key.
+   * @returns The created identity data.
+   */
   public async createIdentity(
     options: PasswordCreateOptions,
   ): Promise<Result<CreatedIdentityData>> {
@@ -52,6 +57,9 @@ export class PasswordBasedEngine implements ISecurityEngine {
           throw new Error(
             "Password is too weak. Please choose a stronger one.",
           );
+        }
+        if (options.password.length < 8) {
+          throw new Error("The password must be at least 8 characters long.");
         }
       }
 
@@ -75,7 +83,10 @@ export class PasswordBasedEngine implements ISecurityEngine {
       );
 
       // Guardar los datos de la identidad
-      if (typeof window === "undefined" && typeof (this.store as any).setMany === "function") {
+      if (
+        typeof window === "undefined" &&
+        typeof (this.store as any).setMany === "function"
+      ) {
         // Node.js: usa setMany para una sola escritura
         await (this.store as any).setMany({
           [DB_KEYS.ENCRYPTED_KEY]: encryptedKeyPem,
@@ -109,6 +120,11 @@ export class PasswordBasedEngine implements ISecurityEngine {
     });
   }
 
+  /**
+   * This method unlocks an identity using a password.
+   * @param options The password to unlock the identity.
+   * @returns The unlocked identity data.
+   */
   public async unlockIdentity(
     options: PasswordUnlockOptions,
   ): Promise<Result<UnlockedIdentityData>> {
@@ -147,6 +163,10 @@ export class PasswordBasedEngine implements ISecurityEngine {
     });
   }
 
+  /**
+   * This method deletes an identity from the store.
+   * @returns A Result indicating success or failure.
+   */
   public async deleteIdentity(): Promise<Result<void>> {
     return tryCatch(async () => {
       if (this.store.clear) {
@@ -159,12 +179,16 @@ export class PasswordBasedEngine implements ISecurityEngine {
           this.store.del(DB_KEYS.IV),
         ]);
       }
-      console.log(
-        "Password-based identity successfully deleted from storage.",
-      );
+      console.log("Password-based identity successfully deleted from storage.");
     });
   }
 
+  /**
+   * This method derives key material from a password and a salt.
+   * @param password The password to derive the key material from.
+   * @param salt The salt to use for the key derivation.
+   * @returns The derived key material.
+   */
   private async deriveKeyMaterial(
     password: string,
     salt: Uint8Array,
@@ -187,5 +211,58 @@ export class PasswordBasedEngine implements ISecurityEngine {
       baseKey,
       256,
     );
+  }
+
+  public async encryptData(data: string, password:string): Promise<Result<string>> {
+    return tryCatch(async () => {
+      const salt = getRandomValues(new Uint8Array(16));
+      const iv = getRandomValues(new Uint8Array(12));
+      const crypto = getSubtleCrypto();
+      const keyMaterial = await this.deriveKeyMaterial(password, salt);
+      const encryptionKey = await crypto.importKey(
+        "raw",
+        keyMaterial,
+        "AES-GCM",
+        false,
+        ["encrypt"],
+      );
+      const encoded = new TextEncoder().encode(data);
+      const cipherText = await crypto.encrypt(
+        { name: "AES-GCM", iv },
+        encryptionKey,
+        encoded,
+      );
+      const bundle = {
+        salt : Array.from(salt),
+        iv: Array.from(iv),
+        cipherText: Array.from(new Uint8Array(cipherText)),
+      }
+      const bundleBase64 = isomorphicBtoa(JSON.stringify(bundle));
+      return bundleBase64;
+    })
+  }
+
+  public async decryptData(data: string, password: string): Promise<Result<string>> {
+    return tryCatch(async () => {
+      const bundle = JSON.parse(isomorphicAtob(data));
+      const salt = new Uint8Array(bundle.salt);
+      const iv = new Uint8Array(bundle.iv);
+      const cipherText = new Uint8Array(bundle.cipherText);
+      const crypto = getSubtleCrypto();
+      const keyMaterial = await this.deriveKeyMaterial(password, salt);
+      const decryptionKey = await crypto.importKey(
+        "raw",
+        keyMaterial,
+        "AES-GCM",
+        true,
+        ["decrypt"],
+      );
+      const decryptedData = await crypto.decrypt(
+        { name: "AES-GCM", iv },
+        decryptionKey,
+        cipherText,
+      );
+      return new TextDecoder().decode(decryptedData);
+    })
   }
 }
