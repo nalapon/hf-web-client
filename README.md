@@ -1,7 +1,6 @@
 # Another Hyperledger Fabric SDK... But At Least This One is for the Web.
 
-> [!WARNING] > **This library is experimental and under heavy development.**
-> The API is subject to change, and it is not recommended for production use at this time. Please use at your own risk.
+> **⚠️ WARNING:** This library is experimental and under heavy development. The API is subject to change, and it is not recommended for production use at this time. Please use at your own risk.
 
 Oh shiet, here we go again. Yeah, I know what you're thinking. _Another_ Fabric SDK? Before you close this tab, let me tell you this one is different: **it's a web client.**
 
