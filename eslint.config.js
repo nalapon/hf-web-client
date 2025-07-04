@@ -1,16 +1,12 @@
 import js from "@eslint/js";
 import tseslint from "@typescript-eslint/eslint-plugin";
 import tsparser from "@typescript-eslint/parser";
+import globals from "globals";
 
 export default [
   js.configs.recommended,
   {
     files: ["**/*.ts", "**/*.tsx"],
-    env: {
-      browser: true, // para que ESLint reconozca “window”
-      node: true, // para que reconozca “process”, “__dirname”, etc.
-      es2022: true,
-    },
     languageOptions: {
       parser: tsparser,
       parserOptions: {
@@ -18,6 +14,11 @@ export default [
         sourceType: "module",
         project: "./tsconfig.json",
       },
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+        ...globals.es2022,
+      }
     },
     plugins: {
       "@typescript-eslint": tseslint,

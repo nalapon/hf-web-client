@@ -22,6 +22,7 @@ const isNode = typeof window === "undefined";
  */
 export class CryptoEngine {
   private unlockedKey: CryptoKey | null = null;
+  private unlockedCert: string | null = null;
 
   // We instantiate the engines and their storage dependencies.
   private readonly passwordEngine: PasswordBasedEngine;
@@ -87,24 +88,29 @@ export class CryptoEngine {
 
           if (result.success) {
             this.unlockedKey = result.data.key;
+            this.unlockedCert = result.data.cert;
           }
           break;
 
-        case WorkerAction.ImportIdentity:
+        case WorkerAction.ImportIdentity: {
           const { keyPem, certPem } = payload;
           if (!keyPem || !certPem) {
             throw new Error("ImportIdentity requires keyPem and certPem.");
           }
           this.unlockedKey = await jose.importPKCS8(keyPem, "ES256");
+          this.unlockedCert = certPem;
           result = { success: true, data: { cert: certPem }, error: null };
           break;
+        }
 
         case WorkerAction.UnlockIdentity:
           result = await engine.unlockIdentity(payload);
           if (result.success) {
             this.unlockedKey = result.data.key;
+            this.unlockedCert = result.data.cert;
           } else {
             this.unlockedKey = null;
+            this.unlockedCert = null;
           }
           break;
 
@@ -113,7 +119,7 @@ export class CryptoEngine {
           this.unlockedKey = null;
           break;
 
-        case WorkerAction.SignPayload:
+        case WorkerAction.SignPayload: {
           if (!this.unlockedKey) {
             throw new Error("Cannot sign: No identity is currently unlocked.");
           }
@@ -132,6 +138,7 @@ export class CryptoEngine {
             error: null,
           };
           break;
+        }
 
         case WorkerAction.GetHardwareCredentialId:
           if (engineType !== "hardware-based") {
@@ -140,6 +147,19 @@ export class CryptoEngine {
             );
           }
           result = await (engine as HardwareBasedEngine).getCredentialId();
+          break;
+
+        case WorkerAction.GetUnlockedIdentity:
+          if (!this.unlockedKey || !this.unlockedCert) {
+            throw new Error(
+              "Cannot get unlocked identity: No identity is currently unlocked.",
+            );
+          }
+          result = {
+            success: true,
+            data: { key: this.unlockedKey, cert: this.unlockedCert },
+            error: null,
+          };
           break;
 
         default:

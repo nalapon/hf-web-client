@@ -30,6 +30,7 @@ export const enum WorkerAction {
   DeleteIdentity = "DELETE_IDENTITY",
   SignPayload = "SIGN_PAYLOAD",
   GetHardwareCredentialId = "GET_HW_CREDENTIAL_ID",
+  GetUnlockedIdentity = "GET_UNLOCKED_IDENTITY",
 }
 
 /**
